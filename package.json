@@ -1,0 +1,26 @@
+{
+  "name": "deskisland",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "src/main/index.cjs",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "vite build",
+    "typecheck": "vue-tsc --noEmit",
+    "test": "node --experimental-strip-types --test",
+    "start:test": "node scripts/dev.mjs",
+    "package:win": "node scripts/package-win.mjs"
+  },
+  "dependencies": {
+    "vue": "^3.5.43"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.9",
+    "electron": "^44.6.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.3",
+    "vue-tsc": "^3.3.12"
+  },
+  "productName": "DeskIsland"
+}

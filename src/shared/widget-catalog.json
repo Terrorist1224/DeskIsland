@@ -1,0 +1,21 @@
+[
+  {
+    "typeId": "music",
+    "title": "音乐",
+    "defaultSize": { "width": 240, "height": 240 },
+    "variants": [
+      { "id": "square", "title": "方形封面", "size": { "width": 240, "height": 240, "minimumWidth": 160 } },
+      { "id": "wide", "title": "横向歌词", "size": { "width": 416, "height": 208, "minimumWidth": 256 } }
+    ],
+    "defaultSettings": {}
+  },
+  {
+    "typeId": "weather",
+    "title": "天气",
+    "defaultSize": { "width": 240, "height": 192 },
+    "variants": [
+      { "id": "standard", "title": "日常天气", "size": { "width": 240, "height": 192, "minimumWidth": 160 } }
+    ],
+    "defaultSettings": { "location": null }
+  }
+]

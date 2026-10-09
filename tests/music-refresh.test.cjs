@@ -1,0 +1,90 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { readFileSync } = require('node:fs');
+const ts = require('typescript');
+
+function refreshHarness(bridge, now = () => Date.now()) {
+  const source = readFileSync(require.resolve('../src/renderer/WidgetView.vue'), 'utf8');
+  const refresh = ts.transpileModule(source.slice(source.indexOf('async function refreshMedia()'), source.indexOf('async function sendMediaCommand(')), { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  return new Function('window', 'Date', `
+    const media={value:null},lyrics={value:null},message={value:''},lyricsError={value:''},lyricsLoading={value:false},commandPending={value:false};
+    let mediaRefreshing=false,disposed=false,mediaVersion=0,expectedPlayback=null,observedMediaAt=0,lyricTrackKey='',lyricRequestId=0,lyricAttempts=0,lyricRetryAt=0;
+    ${refresh}
+    return {refreshMedia,media,lyrics,message,lyricsLoading};
+  `)({ deskIsland: bridge }, { now });
+}
+
+test('lyrics outage backs off and media failures cannot reset exhausted retries', async () => {
+  let now = 1000;
+  let fail = false;
+  let requests = 0;
+  let title = '测试歌曲';
+  const harness = refreshHarness({
+    getMediaSnapshot: async () => { if (fail) throw Error('读取失败'); return { available:true, sourceId:'QQMusic.exe', title, artist:'测试歌手' }; },
+    getLyrics: async () => { requests++; return { error:'测试歌词服务不可用' }; },
+  }, () => now);
+  await harness.refreshMedia();
+  await new Promise(setImmediate);
+  assert.equal(harness.lyrics.value, null);
+  now += 9999;
+  await harness.refreshMedia();
+  assert.equal(requests, 1);
+  now++;
+  await harness.refreshMedia();
+  await new Promise(setImmediate);
+  now += 20_000;
+  await harness.refreshMedia();
+  await new Promise(setImmediate);
+  assert.equal(requests, 3);
+  fail = true;
+  await harness.refreshMedia();
+  fail = false;
+  now += 60_000;
+  await harness.refreshMedia();
+  assert.equal(requests, 3);
+  title = '另一首测试歌曲';
+  await harness.refreshMedia();
+  await new Promise(setImmediate);
+  assert.equal(requests, 4);
+});
+
+test('late lyrics for the old track cannot replace the new song', async () => {
+  let title = '第一首';
+  const pending = new Map();
+  const harness = refreshHarness({
+    getMediaSnapshot: async () => ({ available:true,sourceId:'QQMusic.exe',title,artist:'测试歌手' }),
+    getLyrics: track => new Promise(resolve => pending.set(track.title,resolve)),
+  });
+  await harness.refreshMedia();
+  title='第二首';
+  await harness.refreshMedia();
+  pending.get('第二首')({ lines:[{timeSeconds:1,text:'新歌词'}] });
+  await new Promise(setImmediate);
+  pending.get('第一首')({ lines:[{timeSeconds:1,text:'过期歌词'}] });
+  await new Promise(setImmediate);
+  assert.equal(harness.media.value.title,'第二首');
+  assert.equal(harness.lyrics.value.lines[0].text,'新歌词');
+});
+
+test('media read failure clears controls and pending lyrics, then recovers', async () => {
+  let fail = false;
+  let requests = 0;
+  let oldResolve;
+  const harness = refreshHarness({
+    getMediaSnapshot: async () => { if (fail) throw Error('读取失败'); return {available:true,sourceId:'QQMusic.exe',title:'测试歌曲',artist:'测试歌手',canToggle:true}; },
+    getLyrics: () => { requests++; if(requests===1) return new Promise(resolve=>{oldResolve=resolve;}); return Promise.resolve({lines:[{timeSeconds:1,text:'恢复歌词'}]}); },
+  });
+  await harness.refreshMedia();
+  assert.equal(harness.lyricsLoading.value,true);
+  fail=true;
+  await harness.refreshMedia();
+  assert.equal(harness.media.value,null);
+  assert.equal(harness.lyricsLoading.value,false);
+  fail=false;
+  await harness.refreshMedia();
+  await new Promise(setImmediate);
+  oldResolve({lines:[{timeSeconds:1,text:'旧歌词'}]});
+  await new Promise(setImmediate);
+  assert.equal(requests,2);
+  assert.equal(harness.lyrics.value.lines[0].text,'恢复歌词');
+});
