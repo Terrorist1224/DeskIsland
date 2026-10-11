@@ -3,6 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { widgetCatalog, getWidgetDefinition } from '../shared/catalog';
 import type { MediaSnapshot, WeatherLocation, WidgetInstance, WidgetType, WidgetVariant } from '../shared/contracts';
 import MusicTile from './components/MusicTile.vue';
+import TodoTile from './components/todo/TodoTile.vue';
+import type { TodoItem } from '../shared/contracts';
 import WeatherIcon from './components/WeatherIcon.vue';
 import WeatherLocationSettings from './components/WeatherLocationSettings.vue';
 
@@ -26,6 +28,10 @@ const credentialSaved = ref(false);
 const definition = computed(() => getWidgetDefinition(selectedType.value));
 const currentWidget = computed(() => widgets.value.find(item => item.typeId === selectedType.value));
 const previewMedia: MediaSnapshot = { available: true, title: '午后留声 · 示例歌曲', artist: '示例歌手', playbackStatus: 'Playing', durationTicks: 1_980_000_000 };
+const previewTodos: TodoItem[] = [
+  {id:'preview-1',text:'论文 · 示例',color:'yellow',remindAt:null,reminderState:null},
+  {id:'preview-2',text:'阅读 · 示例',color:'green',remindAt:null,reminderState:null},
+];
 let removeEditListener: (() => void) | undefined;
 let removeWeatherListener: (() => void) | undefined;
 let removeErrorListener: (() => void) | undefined;
@@ -159,7 +165,7 @@ onBeforeUnmount(() => {removeEditListener?.();removeWeatherListener?.();removeEr
           <div><h1>{{ settingsPage ? '设置' : definition.title }}</h1></div>
           <button type="button" class="edit-button" :class="{ active: editMode }" :aria-pressed="editMode" :disabled="busy" @click="run(async () => { editMode = await bridge.setEditMode(!editMode); })">{{ editMode ? '完成编辑' : '编辑桌面' }}</button>
         </div>
-        <p v-if="editMode" class="edit-hint" role="status">拖动磁贴任意区域，四角等比缩放，松手按网格对齐。编辑时内部控件暂停操作，按 Esc 或「完成编辑」锁定布局。</p>
+        <p v-if="editMode" class="edit-hint" role="status">拖动磁贴任意区域，四角缩放（待办宽高独立），松手按网格对齐。编辑时内部控件暂停操作，按 Esc 或「完成编辑」锁定布局。</p>
         <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
         <section v-if="settingsPage" class="general-settings" aria-label="程序设置">
           <div class="startup-setting"><span>开机自启</span><button type="button" class="widget-switch" role="switch" aria-label="开机自启" :aria-checked="startup.enabled" :disabled="busy || !startup.supported" @click="changeStartup"><span></span></button></div>
@@ -203,20 +209,24 @@ onBeforeUnmount(() => {removeEditListener?.();removeWeatherListener?.();removeEr
               <div v-if="selectedType === 'music'" class="preview-tile" :class="variant.id === 'wide' ? 'preview-wide' : 'preview-square'">
                 <MusicTile :wide="variant.id === 'wide'" preview :media="previewMedia" lyric="让这一刻，慢一点经过" :position="840_000_000" />
               </div>
+              <div v-else-if="selectedType === 'todo'" class="preview-todo"><TodoTile :items="previewTodos" preview /></div>
               <div v-else class="preview-weather">
                 <div>杭州 · 示例<WeatherIcon :code="2" condition="晴间多云" /></div><strong>24°</strong><p>晴间多云</p><small>最高 26°　最低 18°<br>天气数据为预览示例</small>
               </div>
             </div>
             <button v-if="selectedType === 'music'" type="button" class="variant-action" :class="{ current: currentWidget?.variantId === variant.id }" :disabled="busy || !currentWidget || currentWidget.variantId === variant.id" @click="selectVariant(variant.id)">{{ currentWidget?.variantId === variant.id ? '当前' : '切换' }}</button>
+            <button v-else-if="selectedType === 'todo'" type="button" class="variant-action" :disabled="busy" @click="run(() => bridge.previewTodoReminder())">全屏预览</button>
           </article>
         </div>
         <p v-if="!settingsPage && selectedType === 'music' && !currentWidget" class="empty">打开侧边栏开关后可设置磁贴。</p>
+        <p v-if="!settingsPage && selectedType === 'todo'" class="empty">打开侧边栏开关显示待办；点击桌面磁贴右下角＋添加事项。提醒仅在程序运行且磁贴开启时触发，错过不补提醒。</p>
       </div>
     </div>
   </main>
 </template>
 
 <style>
+.preview-todo{width:240px;height:240px;border-radius:20px;overflow:hidden}
 .settings-button{position:absolute;bottom:24px;left:14px;width:132px}.settings-button.selected{background:#ffffff14;font-weight:600}.general-settings{padding:20px;border:1px solid #ffffff26;border-radius:12px;background:#ffffff08}.startup-setting{display:flex;align-items:center;gap:10px}.general-settings p{font-size:12px;line-height:1.7;color:#e6e2e6}.widget-switch:focus-visible{outline:2px solid #eee9ef;outline-offset:3px}
 *{box-sizing:border-box}html,body,#app{height:100%;margin:0;background:transparent}body{font-family:"Segoe UI","Microsoft YaHei UI",sans-serif;color:#fafafa;font-size:14px;color-scheme:dark}button,input{font:inherit}button{cursor:pointer;color:inherit}button:disabled{cursor:default}button:focus-visible,input:focus-visible{outline:2px solid #eee9ef;outline-offset:3px}
 .control{user-select:none;height:100%;overflow:hidden;background:rgba(8,10,14,.46);border:1px solid #ffffff40fff42;border-radius:20px;backdrop-filter:blur(16px) saturate(1.15);display:flex;flex-direction:column}.titlebar{height:54px;flex:none;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #ffffff14;-webkit-app-region:drag;padding-left:23px;user-select:none}.brand{font-size:15px;font-weight:600}.brand span{font-size:12px;color:#e6e2e6;font-weight:400;margin-left:10px}.window-actions{display:flex;height:100%;-webkit-app-region:no-drag}.window-actions button{width:48px;border:0;background:transparent;font-size:21px}.window-actions button:hover{background:#ffffff14}.window-actions button:last-child:hover{background:#b93434;color:white}

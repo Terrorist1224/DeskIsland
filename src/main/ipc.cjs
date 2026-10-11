@@ -3,11 +3,43 @@ const widgetTypes = new Set(require('../shared/widget-catalog.json').map((item) 
 const mediaCommands = new Set(['toggle', 'next', 'previous', 'seek']);
 const { listWeatherRegions, getWeatherRegionPath } = require('./weather-regions.cjs');
 
-function registerHandlers({ store, getWindowsHost, weatherService, weatherSettings, openWeatherLink, lyricsService, widgetWindows, getInitialOrigin, getControlWindow, getAppInfo, getStartupSettings, setStartupSettings }) {
+function registerHandlers({ store, getWindowsHost, weatherService, weatherSettings, openWeatherLink, lyricsService, widgetWindows, todoReminders, reminderWindow, getInitialOrigin, getControlWindow, getAppInfo, getStartupSettings, setStartupSettings }) {
   const savingLocations = new Set();
   function requireControl(event) {
     if (event.sender !== getControlWindow()?.webContents) throw new Error('此操作只能在主窗口执行');
   }
+  function requireTodo(event) {
+    const entry=[...widgetWindows.windows].find(([,window])=>!window.isDestroyed() && window.webContents===event.sender);
+    const widget=entry && store.list().find(item=>item.id===entry[0]);
+    if(!widget || widget.typeId!=='todo' || !widget.enabled || widgetWindows.editMode) throw new Error('此操作只能由开启的待办磁贴执行');
+    return widget.id;
+  }
+  function syncTodo(id) {
+    const widget=store.list().find(item=>item.typeId==='todo');
+    reminderWindow?.sync(widget?.enabled ? widget.settings.items : []);
+    widgetWindows?.windows.get(id)?.webContents.send('widget:settings');
+  }
+  ipcMain.handle('todo:add', (event,input)=>{
+    const id=requireTodo(event);
+    const items=store.addTodo(id,input);
+    syncTodo(id);
+    return items;
+  });
+  ipcMain.handle('todo:complete', (event,itemId)=>{
+    const id=requireTodo(event);
+    const items=store.completeTodo(id,itemId);
+    syncTodo(id);
+    return items;
+  });
+  ipcMain.handle('todo:move', (event,itemId,beforeId)=>{
+    const id=requireTodo(event);
+    const items=store.moveTodo(id,itemId,beforeId);
+    syncTodo(id);
+    return items;
+  });
+  ipcMain.handle('todo-reminder:get', event=>{reminderWindow.requireSender(event.sender);return reminderWindow.items;});
+  ipcMain.handle('todo-reminder:preview', event=>{requireControl(event);reminderWindow.preview();});
+  ipcMain.handle('todo-reminder:dismiss', event=>{reminderWindow.requireSender(event.sender);reminderWindow.dismiss();});
   ipcMain.handle('app:info', () => getAppInfo());
   ipcMain.handle('app:get-startup', event => { requireControl(event); return getStartupSettings(); });
   ipcMain.handle('app:set-startup', (event, enabled) => {
@@ -28,6 +60,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
     if (typeof id !== 'string' || id.length > 64) throw new TypeError('Invalid widget id');
     store.remove(id);
     widgetWindows?.remove(id);
+    syncTodo(id);
   });
   ipcMain.handle('widgets:set-variant', (event, id, variantId) => {
     requireControl(event);
@@ -41,6 +74,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
     const widget = store.setEnabled(id, enabled);
     if (enabled) widgetWindows.show(widget);
     else widgetWindows.remove(id);
+    if(widget.typeId==='todo') { todoReminders?.reconcile(id);syncTodo(id); }
     return widget;
   });
   ipcMain.handle('weather:get-enabled', (event) => { requireControl(event); return store.getWeatherEnabled(); });
@@ -168,6 +202,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
 }
 
 function unregisterWidgetHandlers() {
+  for(const channel of ['todo:add','todo:complete','todo:move','todo-reminder:get','todo-reminder:dismiss','todo-reminder:preview']) ipcMain.removeHandler(channel);
   for (const channel of ['app:info', 'app:get-startup', 'app:set-startup']) ipcMain.removeHandler(channel);
   for (const channel of ['weather:credentials-status', 'weather:credentials-save', 'weather:open-link']) ipcMain.removeHandler(channel);
   ipcMain.removeHandler('weather:get-enabled');

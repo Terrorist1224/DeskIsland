@@ -2,7 +2,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const catalog = require('../shared/widget-catalog.json');
-const { GRID_SIZE, sizeAtScale } = require('../shared/grid.cjs');
+const { GRID_SIZE, sizeAtScale, validWidgetSize } = require('../shared/grid.cjs');
+const { validateTodoInput, validateTodoItems } = require('../shared/todo.cjs');
 
 const schemaVersion = 2;
 const definitions = new Map(catalog.map((item) => [item.typeId, item]));
@@ -32,7 +33,7 @@ class WidgetStore {
   create(typeId, origin = { x: 32, y: 32, width: 1280, monitorId: 'primary' }, variantId, enabled = true) {
     const definition = definitions.get(typeId);
     if (!definition) throw new TypeError(`Unsupported widget type: ${typeId}`);
-    if (typeId !== 'weather' && this.state.widgets.some((item) => item.typeId === typeId)) throw new Error('音乐最多创建一个磁贴，请切换现有磁贴的款式');
+    if (typeId !== 'weather' && this.state.widgets.some((item) => item.typeId === typeId)) throw new Error(`${definition.title}最多创建一个磁贴，请使用现有磁贴`);
     if (typeof enabled !== 'boolean') throw new TypeError('Invalid widget enabled state');
     const variant = definition.variants.find((item) => item.id === (variantId ?? definition.variants[0].id));
     if (!variant) throw new TypeError('Invalid widget variant');
@@ -95,7 +96,7 @@ class WidgetStore {
     if (!variant) throw new TypeError('Invalid widget variant');
     const previous = structuredClone(widget);
     const previousBase=definitions.get(widget.typeId).variants.find(item=>item.id===widget.variantId).size;
-    const size=sizeAtScale(variant.size,widget.width/previousBase.width);
+    const size=variant.size.freeResize ? {width:widget.width,height:widget.height} : sizeAtScale(variant.size,widget.width/previousBase.width);
     Object.assign(widget, fit({ ...widget,variantId,...size }));
     try { this.#write(); } catch (error) { Object.assign(widget, previous); throw error; }
     return structuredClone(widget);
@@ -117,9 +118,7 @@ class WidgetStore {
     const widget=this.state.widgets.find(item=>item.id===id);
     if(!widget) throw new Error('找不到这个磁贴');
     const base=definitions.get(widget.typeId).variants.find(item=>item.id===widget.variantId).size;
-    if(!['x','y','width','height'].every(key=>Number.isSafeInteger(bounds[key])) ||
-      bounds.width*base.height!==bounds.height*base.width || bounds.width<base.minimumWidth || bounds.width>base.width*2 ||
-      bounds.width%GRID_SIZE || bounds.height%GRID_SIZE || typeof bounds.monitorId!=='string') throw new TypeError('Invalid widget bounds');
+    if(!['x','y'].every(key=>Number.isSafeInteger(bounds[key])) || !validWidgetSize(bounds,base) || typeof bounds.monitorId!=='string') throw new TypeError('Invalid widget bounds');
     const previous=structuredClone(widget);
     Object.assign(widget,{x:bounds.x,y:bounds.y,width:bounds.width,height:bounds.height,monitorId:bounds.monitorId});
     try { if(persist) this.#write(); } catch(error) { Object.assign(widget,previous);throw error; }
@@ -130,6 +129,7 @@ class WidgetStore {
     const widget = this.state.widgets.find((item) => item.id === id);
     if (!widget) return false;
     const definition = definitions.get(widget.typeId);
+    if(widget.typeId==='todo') throw new Error('请使用待办专用操作');
     const updates = Object.entries(patch).map(([key, value]) => {
       if (!Object.hasOwn(definition.defaultSettings, key)) throw new TypeError(`Unsupported widget setting: ${key}`);
       return [key, structuredClone(value)];
@@ -149,6 +149,49 @@ class WidgetStore {
     return true;
   }
 
+  #todo(id) {
+    const widget=this.state.widgets.find(item=>item.id===id && item.typeId==='todo');
+    if(!widget) throw new Error('找不到待办磁贴');
+    return widget;
+  }
+
+  #saveTodos(widget, items) {
+    validateTodoItems(items);
+    const previous=widget.settings.items;
+    widget.settings.items=items;
+    try { this.#write(); } catch(error) { widget.settings.items=previous;throw error; }
+    return structuredClone(items);
+  }
+
+  addTodo(id, input, now=Date.now()) {
+    const widget=this.#todo(id);
+    const value=validateTodoInput(input,now);
+    return this.#saveTodos(widget,[...widget.settings.items,{id:randomUUID(),...value,reminderState:value.remindAt===null?null:'pending'}]);
+  }
+
+  completeTodo(id, itemId) {
+    if(typeof itemId!=='string' || !itemId || itemId.length>64) throw new TypeError('Invalid todo id');
+    const widget=this.#todo(id);
+    return this.#saveTodos(widget,widget.settings.items.filter(item=>item.id!==itemId));
+  }
+
+  moveTodo(id, itemId, beforeId) {
+    if (typeof itemId !== 'string' || !itemId || itemId.length > 64 ||
+        (beforeId !== null && (typeof beforeId !== 'string' || !beforeId || beforeId.length > 64))) throw new TypeError('Invalid todo move');
+    const widget = this.#todo(id);
+    const item = widget.settings.items.find(item => item.id === itemId);
+    if (!item || (beforeId !== null && !widget.settings.items.some(item => item.id === beforeId))) throw new Error('待办事项已变更，请重试');
+    if (itemId === beforeId) return structuredClone(widget.settings.items);
+    const items = widget.settings.items.filter(item => item.id !== itemId);
+    items.splice(beforeId === null ? items.length : items.findIndex(item => item.id === beforeId), 0, item);
+    return this.#saveTodos(widget, items);
+  }
+
+  setTodoReminderStates(id, states) {
+    const widget=this.#todo(id);
+    return this.#saveTodos(widget,widget.settings.items.map(item=>states.has(item.id)?{...item,reminderState:states.get(item.id)}:item));
+  }
+
   #read() {
     if (!fs.existsSync(this.filePath)) return { schemaVersion, weatherEnabled: true, widgets: [] };
     const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
@@ -166,13 +209,11 @@ class WidgetStore {
       if (!widget.variantId) widget.variantId = widget.typeId === 'music' ? 'wide' : 'standard';
       const variant = definition.variants.find((item) => item.id === widget.variantId);
       if (!variant) throw new Error('Invalid persisted widget variant');
-      const valid=Number.isSafeInteger(widget.width) && Number.isSafeInteger(widget.height) &&
-        widget.width*variant.size.height===widget.height*variant.size.width &&
-        widget.width>=variant.size.minimumWidth && widget.width<=variant.size.width*2 &&
-        widget.width%GRID_SIZE===0 && widget.height%GRID_SIZE===0;
+      const valid=validWidgetSize(widget,variant.size);
       if(!valid && parsed.schemaVersion===schemaVersion) throw new Error('Invalid persisted widget size');
       if(!valid) Object.assign(widget,variant.size);
       if(!Number.isSafeInteger(widget.x) || !Number.isSafeInteger(widget.y)) throw new Error('Invalid persisted widget position');
+      if(widget.typeId==='todo') validateTodoItems(widget.settings?.items);
     }
     parsed.schemaVersion=schemaVersion;
     return parsed;

@@ -8,9 +8,10 @@ export interface TileRect {
 
 export interface GridPoint { x: number; y: number }
 export const GRID_SIZE: 16;
-export interface GridSize { width: number; height: number; minimumWidth?: number }
+export interface GridSize { width: number; height: number; minimumWidth?: number; minimumHeight?: number; maximumWidth?: number; maximumHeight?: number; freeResize?: boolean }
 export interface GridBounds extends GridPoint, GridSize {}
 export function sizeAtScale(base: GridSize, scale: number, available?: GridSize): GridSize;
+export function validWidgetSize(bounds: GridSize, base: GridSize): boolean;
 export function fitBoundsToGrid(bounds: GridBounds, base: GridSize, area: GridBounds): GridBounds;
 export function resizeFromCorner(start: GridBounds, base: GridSize, corner: 'nw'|'ne'|'sw'|'se', delta: GridPoint, area: GridBounds): GridBounds;
 

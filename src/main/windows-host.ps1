@@ -33,7 +33,7 @@ public static class DeskIslandWindowState {
     else SetWindowLong32(window, index, value.ToInt32());
   }
 
-  public static bool InstallDesktopWidget(string handle) {
+  public static bool InstallDesktopWidget(string handle, bool focusable) {
     IntPtr window = new IntPtr(long.Parse(handle));
     if (!IsWindow(window)) throw new ArgumentException("Widget window no longer exists.");
     IntPtr desktop = IntPtr.Zero;
@@ -45,10 +45,11 @@ public static class DeskIslandWindowState {
     if (desktop == IntPtr.Zero) throw new InvalidOperationException("Windows desktop host is unavailable.");
     // Owner, not parent: coordinates and DPI remain Electron DIP; no cross-process SetParent reset.
     // Explorer may host DefView in Progman or WorkerW. Bind to the actual icon host, not a stale shell HWND.
-    int style = (GetWindowLong(window, -20) | 0x08000080) & ~0x00040000;
-    SetWindowValue(window, -20, new IntPtr(style)); // NOACTIVATE | TOOLWINDOW, without APPWINDOW.
+    int style = (GetWindowLong(window, -20) | 0x00000080) & ~0x00040000;
+    style = focusable ? style & ~0x08000000 : style | 0x08000000;
+    SetWindowValue(window, -20, new IntPtr(style)); // Only todo accepts keyboard focus; all tiles remain TOOLWINDOW.
     SetWindowValue(window, -8, desktop); // GWLP_HWNDPARENT sets the owner of this top-level window.
-    if (GetWindow(window, 4) != desktop || (GetWindowLong(window, -20) & 0x08000080) != 0x08000080)
+    if (GetWindow(window, 4) != desktop || (GetWindowLong(window, -20) & 0x08000080) != (focusable ? 0x00000080 : 0x08000080))
       throw new InvalidOperationException("Windows rejected desktop widget ownership.");
     return LowerWidget(handle);
   }
@@ -68,7 +69,7 @@ public static class DeskIslandWindowState {
     if (!IsWindow(window)) throw new ArgumentException("Window no longer exists.");
     // Minimized GetWindowRect describes the tiny titlebar, not the window's restored clipping bounds.
     if (IsIconic(window)) return false;
-    // Accent policy is a Win10 compatibility path. Win11 uses Electron's documented material API.
+    // Accent blur also supplies untinted reminders on Win11; themed windows use Electron Acrylic.
     AccentPolicy accent = new AccentPolicy { State = blur ? 3 : 0 };
     IntPtr memory = Marshal.AllocHGlobal(Marshal.SizeOf(accent));
     try {
@@ -311,7 +312,7 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
       'media.command' { $result = Invoke-MediaCommand -Message $message }
       'system.pause-state' { $result = @{ shouldPause = [DeskIslandWindowState]::ShouldPauseWidgets() } }
       'system.lower-widget' { $result = @{ desktopLevel = [DeskIslandWindowState]::LowerWidget([string]$message.handle) } }
-      'system.desktop-widget' { $result = @{ installed = [DeskIslandWindowState]::InstallDesktopWidget([string]$message.handle) } }
+      'system.desktop-widget' { $result = @{ installed = [DeskIslandWindowState]::InstallDesktopWidget([string]$message.handle, ($message.focusable -eq $true)) } }
       'system.window-glass' { $result = @{ applied = [DeskIslandWindowState]::ApplyGlass([string]$message.handle, ($message.blur -ne $false)) } }
       default { throw 'Unsupported method.' }
     }

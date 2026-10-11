@@ -16,6 +16,7 @@ export default defineConfig({
       input: {
         control: fileURLToPath(new URL('./index.html', import.meta.url)),
         widget: fileURLToPath(new URL('./widget.html', import.meta.url)),
+        reminder: fileURLToPath(new URL('./reminder.html', import.meta.url)),
       },
     },
   },

@@ -17,5 +17,14 @@
       { "id": "standard", "title": "日常天气", "size": { "width": 240, "height": 192, "minimumWidth": 160 } }
     ],
     "defaultSettings": { "location": null }
+  },
+  {
+    "typeId": "todo",
+    "title": "待办",
+    "defaultSize": { "width": 240, "height": 240 },
+    "variants": [
+      { "id": "standard", "title": "待办列表", "size": { "width": 240, "height": 240, "minimumWidth": 160, "minimumHeight": 160, "maximumWidth": 480, "maximumHeight": 480, "freeResize": true } }
+    ],
+    "defaultSettings": { "items": [] }
   }
 ]

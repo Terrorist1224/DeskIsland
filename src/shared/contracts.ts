@@ -1,4 +1,7 @@
-export type WidgetType = 'music' | 'weather';
+export type WidgetType = 'music' | 'weather' | 'todo';
+export type TodoColor = 'yellow' | 'green' | 'blue' | 'orange' | 'pink';
+export interface TodoInput { text: string; color: TodoColor; remindAt: number | null }
+export interface TodoItem extends TodoInput { id: string; reminderState: 'pending' | 'notified' | 'missed' | null }
 export type WidgetVariant = 'square' | 'wide' | 'standard';
 export type EditGesture = 'move' | 'nw' | 'ne' | 'sw' | 'se';
 export interface WidgetBounds { x:number; y:number; width:number; height:number }
@@ -8,7 +11,7 @@ export interface WidgetDefinition {
   title: string;
   defaultSize: { width: number; height: number };
   defaultSettings: Record<string, unknown>;
-  variants: { id: WidgetVariant; title: string; size: { width: number; height: number; minimumWidth: number } }[];
+  variants: { id: WidgetVariant; title: string; size: { width: number; height: number; minimumWidth: number; minimumHeight?: number; maximumWidth?: number; maximumHeight?: number; freeResize?: boolean } }[];
 }
 
 export interface WidgetInstance {
@@ -89,6 +92,10 @@ export interface WeatherSnapshot {
 }
 
 export interface DesktopIslandBridge {
+  addTodo(input: TodoInput): Promise<TodoItem[]>;
+  completeTodo(id: string): Promise<TodoItem[]>;
+  moveTodo(id: string, beforeId: string | null): Promise<TodoItem[]>;
+  previewTodoReminder(): Promise<void>;
   getAppInfo(): Promise<{ version: string }>;
   getStartupSettings(): Promise<{ supported: boolean; enabled: boolean }>;
   setStartupSettings(enabled: boolean): ReturnType<DesktopIslandBridge['getStartupSettings']>;
@@ -131,5 +138,10 @@ export interface DesktopIslandBridge {
 declare global {
   interface Window {
     deskIsland: DesktopIslandBridge;
+    todoReminder: {
+      getItems(): Promise<TodoItem[]>;
+      dismiss(): Promise<void>;
+      onItems(callback: (items: TodoItem[]) => void): () => void;
+    };
   }
 }

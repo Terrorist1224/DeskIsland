@@ -57,16 +57,16 @@ class WidgetWindows {
       y: widget.y,
       frame: false,
       thickFrame: false,
-      transparent: !supportsNativeAcrylic,
+      transparent: widget.typeId === 'todo' || !supportsNativeAcrylic,
       roundedCorners: true,
-      backgroundMaterial: supportsNativeAcrylic ? 'acrylic' : 'none',
+      backgroundMaterial: widget.typeId !== 'todo' && supportsNativeAcrylic ? 'acrylic' : 'none',
       backgroundColor: '#00000000',
       resizable: false,
       movable: false,
       minimizable: false,
       maximizable: false,
       skipTaskbar: true,
-      focusable: false,
+      focusable: widget.typeId === 'todo',
       show: false,
       webPreferences: {
         preload: this.preloadPath,
@@ -76,7 +76,7 @@ class WidgetWindows {
       },
     });
     // Win10 accent blur ignores rounded clipping; weather's transparent corners take precedence.
-    installLegacyGlass(window, this.getWindowsHost, widget.typeId !== 'weather');
+    installLegacyGlass(window, this.getWindowsHost, widget.typeId === 'music');
     window.setAlwaysOnTop(false);
     window.on('show', () => this.#lowerWindow(window));
     window.on('minimize', () => { window.restore(); this.#lowerWindow(window); });
@@ -87,7 +87,7 @@ class WidgetWindows {
     window.webContents.once('did-finish-load', async () => {
       window.setBounds({ x:widget.x,y:widget.y,width:widget.width,height:widget.height }, false);
       try {
-        const result=await this.getWindowsHost().request('system.desktop-widget',{handle:getWindowHandle(window)});
+        const result=await this.getWindowsHost().request('system.desktop-widget',{handle:getWindowHandle(window),focusable:widget.typeId==='todo'});
         if(!result.installed) throw new Error('Windows 没有启用桌面磁贴层级');
         if(window.isDestroyed()) return;
         this.readyWindows.add(window);
@@ -152,7 +152,7 @@ class WidgetWindows {
         });
         overlay.setIgnoreMouseEvents(true);
         overlay.setAlwaysOnTop(true, 'floating');
-        const html = `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>html{height:100%;background-color:#ffffff03;background-image:linear-gradient(#ffffff26 1px,transparent 1px),linear-gradient(90deg,#ffffff26 1px,transparent 1px);background-size:${GRID_SIZE}px ${GRID_SIZE}px}body{font:14px Segoe UI,sans-serif;color:#fafafa;background:#17161bed;border:1px solid #ffffff40;border-radius:12px;padding:12px 18px;width:max-content;margin:12px auto}</style><body>DeskIsland · 拖动磁贴，四角等比缩放 · Esc 完成编辑</body>`;
+        const html = `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>html{height:100%;background-color:#ffffff03;background-image:linear-gradient(#ffffff26 1px,transparent 1px),linear-gradient(90deg,#ffffff26 1px,transparent 1px);background-size:${GRID_SIZE}px ${GRID_SIZE}px}body{font:14px Segoe UI,sans-serif;color:#fafafa;background:#17161bed;border:1px solid #ffffff40;border-radius:12px;padding:12px 18px;width:max-content;margin:12px auto}</style><body>DeskIsland · 拖动磁贴，四角缩放（待办宽高独立） · Esc 完成编辑</body>`;
         void overlay.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
         overlay.once('ready-to-show', () => {
           if (!overlay.isDestroyed() && this.editMode) {

@@ -57,7 +57,7 @@ function sizeAtScale(base, scale, available = { width:Infinity,height:Infinity }
 
 // All coordinates are Electron DIP; each display's work area is its own lattice origin.
 function fitBoundsToGrid(bounds, base, area) {
-  const size=sizeAtScale(base,bounds.width/base.width,area);
+  const size=base.freeResize ? freeSize(bounds,base,area) : sizeAtScale(base,bounds.width/base.width,area);
   const point=snapPointToGrid({x:bounds.x-area.x,y:bounds.y-area.y});
   const maxX=Math.floor((area.width-size.width)/GRID_SIZE)*GRID_SIZE;
   const maxY=Math.floor((area.height-size.height)/GRID_SIZE)*GRID_SIZE;
@@ -70,6 +70,10 @@ function resizeFromCorner(start, base, corner, delta, area) {
   const fixedX=left?start.x+start.width:start.x;
   const fixedY=top?start.y+start.height:start.y;
   const available={width:left?fixedX-area.x:area.x+area.width-fixedX,height:top?fixedY-area.y:area.y+area.height-fixedY};
+  if(base.freeResize) {
+    const size=freeSize({width:start.width+(left?-delta.x:delta.x),height:start.height+(top?-delta.y:delta.y)},base,available);
+    return {x:left?fixedX-size.width:fixedX,y:top?fixedY-size.height:fixedY,...size};
+  }
   const step=sizeSteps(base);
   // Project the pointer delta onto the ratio vector so either axis can drive proportional resizing.
   const change=((left?-delta.x:delta.x)*step.width+(top?-delta.y:delta.y)*step.height)/(step.width**2+step.height**2);
@@ -78,4 +82,21 @@ function resizeFromCorner(start, base, corner, delta, area) {
   return {x:left?fixedX-size.width:fixedX,y:top?fixedY-size.height:fixedY,...size};
 }
 
-module.exports = { GRID_SIZE, snapPointToGrid, findMagnetPosition, moveTileGroup, sizeAtScale, fitBoundsToGrid, resizeFromCorner };
+function freeSize(bounds, base, available) {
+  const result={};
+  for(const axis of ['width','height']) {
+    const minimum=base[axis==='width'?'minimumWidth':'minimumHeight'];
+    const maximum=Math.floor(Math.min(base[axis==='width'?'maximumWidth':'maximumHeight'],available[axis])/GRID_SIZE)*GRID_SIZE;
+    if(maximum<minimum) throw new RangeError('显示器工作区无法容纳磁贴的最小尺寸');
+    result[axis]=Math.max(minimum,Math.min(maximum,Math.round(bounds[axis]/GRID_SIZE)*GRID_SIZE));
+  }
+  return result;
+}
+
+function validWidgetSize(bounds, base) {
+  if(!Number.isSafeInteger(bounds.width) || !Number.isSafeInteger(bounds.height) || bounds.width%GRID_SIZE || bounds.height%GRID_SIZE) return false;
+  if(base.freeResize) return bounds.width>=base.minimumWidth && bounds.width<=base.maximumWidth && bounds.height>=base.minimumHeight && bounds.height<=base.maximumHeight;
+  return bounds.width*base.height===bounds.height*base.width && bounds.width>=base.minimumWidth && bounds.width<=base.width*2;
+}
+
+module.exports = { GRID_SIZE, snapPointToGrid, findMagnetPosition, moveTileGroup, sizeAtScale, fitBoundsToGrid, resizeFromCorner, validWidgetSize };

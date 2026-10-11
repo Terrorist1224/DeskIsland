@@ -1,6 +1,10 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('deskIsland', {
+  addTodo: input => ipcRenderer.invoke('todo:add', input),
+  completeTodo: id => ipcRenderer.invoke('todo:complete', id),
+  moveTodo: (id, beforeId) => ipcRenderer.invoke('todo:move', id, beforeId),
+  previewTodoReminder: () => ipcRenderer.invoke('todo-reminder:preview'),
   getAppInfo: () => ipcRenderer.invoke('app:info'),
   getStartupSettings: () => ipcRenderer.invoke('app:get-startup'),
   setStartupSettings: enabled => ipcRenderer.invoke('app:set-startup', enabled),

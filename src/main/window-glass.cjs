@@ -7,8 +7,8 @@ function getWindowHandle(window) {
   return (handle.length === 8 ? handle.readBigUInt64LE() : BigInt(handle.readUInt32LE())).toString();
 }
 
-function installLegacyGlass(window, getWindowsHost, blur = true) {
-  if (supportsNativeAcrylic || process.platform !== 'win32') return;
+function installLegacyGlass(window, getWindowsHost, blur = true, untinted = false) {
+  if ((!untinted && supportsNativeAcrylic) || process.platform !== 'win32') return;
   let resizeTimer;
   function apply() {
     if (window.isDestroyed() || window.isMinimized()) return;
@@ -16,7 +16,7 @@ function installLegacyGlass(window, getWindowsHost, blur = true) {
     void getWindowsHost().request('system.window-glass', { handle: getWindowHandle(window), blur }).catch(error => {
       if (window.isDestroyed()) return;
       console.error('Desktop blur is unavailable:', error);
-      window.setBackgroundColor(blur ? '#17161b' : '#00000000');
+      window.setBackgroundColor(blur && !untinted ? '#17161b' : '#00000000');
     });
   }
   window.once('ready-to-show', apply);

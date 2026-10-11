@@ -1,0 +1,7 @@
+[
+  { "id": "yellow", "name": "浅黄", "value": "#E7E09C" },
+  { "id": "green", "name": "薄荷绿", "value": "#BEDCCD" },
+  { "id": "blue", "name": "浅蓝", "value": "#BEDAE4" },
+  { "id": "orange", "name": "浅橙", "value": "#EBCFAE" },
+  { "id": "pink", "name": "浅粉", "value": "#EACCD0" }
+]

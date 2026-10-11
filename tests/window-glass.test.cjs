@@ -3,6 +3,22 @@ const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
 const { getWindowHandle, installLegacyGlass, supportsNativeAcrylic } = require('../src/main/window-glass.cjs');
 
+test('untinted reminders request accent blur even on Acrylic systems and keep a transparent failure fallback', async () => {
+  if (process.platform !== 'win32') return;
+  const window = new EventEmitter();
+  window.isDestroyed = () => false;
+  window.isMinimized = () => false;
+  window.getNativeWindowHandle = () => Buffer.from([1, 0, 0, 0]);
+  let payload, background;
+  window.setBackgroundColor = value => { background = value; };
+  installLegacyGlass(window, () => ({ request: async (_method, value) => { payload = value;throw new Error('测试模糊不可用'); } }), true, true);
+  window.emit('ready-to-show');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(payload, { handle: '1', blur: true });
+  assert.equal(background, '#00000000');
+  window.emit('closed');
+});
+
 test('transparent tiles disable rectangular accent blur', () => {
   if (process.platform !== 'win32' || supportsNativeAcrylic) return;
   const window = new EventEmitter();
