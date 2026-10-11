@@ -2,8 +2,8 @@
 import { computed, onMounted, ref } from 'vue';
 import type { WeatherLocation, WeatherRegion } from '../../shared/contracts';
 
-const props = defineProps<{ widgetId: string; location: WeatherLocation | null; disabled: boolean }>();
-const emit = defineEmits<{ saved: [location: WeatherLocation] }>();
+const props = defineProps<{ location: WeatherLocation | null; disabled: boolean; saving: boolean }>();
+const emit = defineEmits<{ save: [code: string] }>();
 const bridge = window.deskIsland;
 const options = ref<WeatherRegion[][]>([[], [], []]);
 const codes = ref<string[]>(['', '', '']);
@@ -43,13 +43,9 @@ async function selectRegion(level: number) {
   });
 }
 
-async function save() {
-  if (!selectedCode.value) return;
-  await run(async () => {
-    const location = await bridge.resolveWeatherRegion(selectedCode.value);
-    if (!await bridge.updateWidgetSettings(props.widgetId, { location })) throw new Error('找不到天气磁贴，请重新打开设置页');
-    emit('saved', location);
-  });
+function save() {
+  if (busy.value || props.disabled || props.saving || !selectedCode.value) return;
+  emit('save', selectedCode.value);
 }
 
 onMounted(() => {
@@ -72,13 +68,13 @@ onMounted(() => {
       <div class="region-selects">
         <label v-for="(label, level) in labels" v-show="!hiddenLevel(level)" :key="level">
           <span>{{ label }}</span>
-          <select v-model="codes[level]" :aria-label="label" :disabled="busy || disabled || !options[level].length" @change="selectRegion(level)">
+          <select v-model="codes[level]" :aria-label="label" :disabled="busy || disabled || saving || !options[level].length" @change="selectRegion(level)">
             <option value="">{{ `请选择${label}` }}</option>
             <option v-for="region in options[level]" :key="region.code" :value="region.code">{{ region.name }}</option>
           </select>
         </label>
       </div>
-      <button type="submit" :disabled="busy || disabled || !selectedCode">{{ busy ? '处理中…' : '保存地点' }}</button>
+      <button type="submit" :disabled="busy || disabled || saving || !selectedCode">{{ saving ? '保存中…' : busy ? '处理中…' : '保存地点' }}</button>
     </form>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
   </section>

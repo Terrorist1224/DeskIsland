@@ -104,11 +104,13 @@ function stopTimers() {
 
 function startTimers() {
   stopTimers();
-  if (!active.value || document.visibilityState !== 'visible' || !widget.value) return;
+  if (!widget.value) return;
   if (widget.value.typeId === 'music') {
+    // A maximized foreground window may leave this tile visible; keep playback synchronized while occluded.
+    const foreground = active.value && document.visibilityState === 'visible';
     void refreshMedia();
-    mediaTimer = setInterval(() => void refreshMedia(), 400);
-    positionTimer = setInterval(() => { positionPulse.value += 1; }, 250);
+    mediaTimer = setInterval(() => void refreshMedia(), foreground ? 400 : 1000);
+    positionTimer = setInterval(() => { positionPulse.value += 1; }, foreground ? 250 : 1000);
   }
 }
 
@@ -152,7 +154,7 @@ async function refreshMedia() {
       lyricRetryAt = 0;
       lyricsLoading.value = false;
     }
-    if (nextKey && !lyrics.value && !lyricsLoading.value && lyricAttempts < 3 && Date.now() >= lyricRetryAt) {
+    if (nextKey && !lyrics.value?.lines.length && !lyricsLoading.value && lyricAttempts < 3 && Date.now() >= lyricRetryAt) {
         const requestId = ++lyricRequestId;
         lyricAttempts++;
         lyricsLoading.value = true;
@@ -167,6 +169,8 @@ async function refreshMedia() {
           if (requestId === lyricRequestId && !disposed) {
             lyrics.value = result;
             lyricsError.value = '';
+            // Plain fallback may follow a temporary QQ outage; retry without pretending it is synchronized.
+            if (result && !result.lines.length) lyricRetryAt = Date.now() + 30_000;
             if (!result) lyricAttempts = 3;
           }
         }).catch((error: unknown) => {
@@ -234,13 +238,11 @@ async function configureWeather() {
 
 function handleActiveChange(isActive: boolean) {
   active.value = isActive;
-  if (isActive) startTimers();
-  else stopTimers();
+  startTimers();
 }
 
 function handleVisibilityChange() {
-  if (document.visibilityState === 'visible') startTimers();
-  else stopTimers();
+  startTimers();
 }
 
 onMounted(async () => {
@@ -283,8 +285,8 @@ onBeforeUnmount(() => {
 <template>
   <main v-if="widget" class="tile" :class="[isMusic ? 'tile--music' : 'tile--weather', { 'tile--editing': editMode }]">
     <div class="tile__content" :style="contentStyle" :inert="editMode">
-    <MusicTile v-if="isMusic" :wide="widget.variantId === 'wide'" :compact="compact" :media="media" :position="currentPosition" :command-pending="commandPending" :animation-active="active"
-      :lyric-line="media?.timelineAvailable === false ? undefined : currentLyric" :lyric-end-seconds="lyricEndSeconds" :lyric="media?.timelineAvailable === false ? '未提供播放时间，歌词同步不可用' : currentLyric?.text || (lyricsLoading ? '正在获取歌词…' : lyricsError ? lyricAttempts < 3 ? '正在重试歌词…' : '歌词暂时无法获取' : lyrics?.lines.length ? '等待歌词开始' : lyrics?.plainLyrics?.replace(/\s*\n\s*/g, ' / ') || (lyricTrackKey ? '暂无匹配歌词' : '等待歌词'))"
+    <MusicTile v-if="isMusic" :wide="widget.variantId === 'wide'" :compact="compact" :media="media" :position="currentPosition" :command-pending="commandPending" :animation-active="true"
+      :lyric-line="media?.timelineAvailable === false ? undefined : currentLyric" :lyric-end-seconds="lyricEndSeconds" :lyric="media?.timelineAvailable === false ? '未提供播放时间，歌词同步不可用' : currentLyric?.text || (lyricsLoading ? '正在获取歌词…' : lyricsError ? lyricAttempts < 3 ? '正在重试歌词…' : '歌词暂时无法获取' : lyrics?.lines.length ? '等待歌词开始' : lyrics?.plainLyrics ? '暂无同步歌词' : lyricTrackKey ? '暂无匹配歌词' : '等待歌词')"
       @command="sendMediaCommand" />
 
     <section v-else class="weather" :class="{'weather--compact':compact}">

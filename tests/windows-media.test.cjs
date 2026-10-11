@@ -3,6 +3,54 @@ const test = require('node:test');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 
+test('QQ infrequent timeline updates advance lyrics and pause/resume never adds paused time', { skip: process.platform !== 'win32' }, () => {
+  const scriptPath = path.resolve(__dirname, '../src/main/windows-host.ps1').replaceAll("'", "''");
+  const script = `
+    $ErrorActionPreference = 'Stop'
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile('${scriptPath}', [ref]$null, [ref]$null)
+    Invoke-Expression ($ast.FindAll({param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-MediaTiming'}, $true)[0].Extent.Text)
+    function Check($condition, $message) { if (-not $condition) { throw $message } }
+    $now = [DateTimeOffset]::Parse('2026-10-10T12:00:00Z')
+    $timeline = [pscustomobject]@{ Position = [TimeSpan]::FromSeconds(10); EndTime = [TimeSpan]::FromSeconds(120); LastUpdatedTime = $now.AddSeconds(-30) }
+    $playback = [pscustomobject]@{ PlaybackStatus = 'Playing'; Controls = [pscustomobject]@{ IsPauseEnabled = $true; IsPlayEnabled = $false } }
+    $first = Get-MediaTiming $timeline $playback 'QQMusic.exe' $now
+    $later = Get-MediaTiming $timeline $playback 'QQMusic.exe' $now.AddSeconds(2)
+    Check ($first.positionTicks -eq 100000000) 'Old timestamp cannot jump progress on first observation'
+    Check ($later.positionTicks -eq 120000000) 'Lyrics freeze: repeated stale QQ snapshots must still advance past next lyric'
+    $playback.PlaybackStatus = 'Paused'; $timeline.Position = [TimeSpan]::FromSeconds(12)
+    Check ((Get-MediaTiming $timeline $playback 'QQMusic.exe' $now.AddSeconds(2)).positionTicks -eq 120000000) 'Pause uses source position'
+    Check ((Get-MediaTiming $timeline $playback 'QQMusic.exe' $now.AddSeconds(62)).positionTicks -eq 120000000) 'Pause cannot advance'
+    $playback.PlaybackStatus = 'Playing'
+    Check ((Get-MediaTiming $timeline $playback 'QQMusic.exe' $now.AddSeconds(62)).positionTicks -eq 120000000) 'Resume cannot add paused duration'
+    Check ((Get-MediaTiming $timeline $playback 'QQMusic.exe' $now.AddSeconds(64)).positionTicks -eq 140000000) 'Resume advances from new observation'
+    $timeline.Position = [TimeSpan]::FromSeconds(3); $timeline.LastUpdatedTime = $now.AddSeconds(64)
+    Check ((Get-MediaTiming $timeline $playback 'QQMusic.exe' $now.AddSeconds(64)).positionTicks -eq 30000000) 'Backward seek replaces anchor'
+    $script:mediaTiming = $null
+    $timeline.Position = [TimeSpan]::FromSeconds(10); $timeline.LastUpdatedTime = $now.AddSeconds(-2)
+    Check ((Get-MediaTiming $timeline $playback 'QQMusic.exe' $now).positionTicks -eq 120000000) 'Seed from fresh timestamp'
+    Check ((Get-MediaTiming $timeline $playback 'QQMusic.exe' $now.AddSeconds(6)).positionTicks -eq 180000000) 'Crossing five seconds cannot rewind and freeze'
+    $timeline.Position = [TimeSpan]::FromSeconds(30); $timeline.LastUpdatedTime = $now.AddSeconds(6)
+    $playback.PlaybackStatus = 'Paused'
+    Check ((Get-MediaTiming $timeline $playback 'QQMusic.exe' $now.AddSeconds(6)).positionTicks -eq 300000000) 'Pause anchors at source'
+    $playback.PlaybackStatus = 'Playing'
+    Check ((Get-MediaTiming $timeline $playback 'QQMusic.exe' $now.AddSeconds(7)).positionTicks -eq 300000000) 'Short pause cannot be counted as playing time'
+    Check ((Get-MediaTiming $timeline $playback 'QQMusic.exe' $now.AddSeconds(9)).positionTicks -eq 320000000) 'Short pause resumes advancing'
+    $timeline.LastUpdatedTime = $now.AddSeconds(-30)
+    Check ((Get-MediaTiming $timeline $playback 'QQMusic.exe' $now.AddSeconds(10) 'first-track').positionTicks -eq 300000000) 'Track anchor starts from source'
+    Check ((Get-MediaTiming $timeline $playback 'QQMusic.exe' $now.AddSeconds(12) 'first-track').positionTicks -eq 320000000) 'Track anchor advances'
+    Check ((Get-MediaTiming $timeline $playback 'QQMusic.exe' $now.AddSeconds(12) 'second-track').positionTicks -eq 300000000) 'New track with identical timing cannot inherit progress'
+    Write-Output 'stale-timeline-passed'
+    @{ first = $first.positionTicks; later = $later.positionTicks } | ConvertTo-Json -Compress
+  `;
+  const output = execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, encoding: 'utf8', timeout: 10000 });
+  assert.match(output, /stale-timeline-passed/);
+  const timing = JSON.parse(output.trim().split(/\r?\n/).at(-1));
+  const { activeLyric } = require('../src/shared/lyrics.ts');
+  const lines = [{ timeSeconds: 10, text: '测试第一句' }, { timeSeconds: 11, text: '测试第二句' }];
+  assert.equal(activeLyric(lines, timing.first / 10_000_000).text, '测试第一句');
+  assert.equal(activeLyric(lines, timing.later / 10_000_000).text, '测试第二句');
+});
+
 test('Windows media selection, timeline extrapolation, QQ transition status and unsupported seeking', { skip: process.platform !== 'win32' }, () => {
   const scriptPath = path.resolve(__dirname, '../src/main/windows-host.ps1').replaceAll("'", "''");
   // Load only the real pure functions: no WinRT initialization, player commands, or persistent worker.

@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('deskIsland', {
   searchWeatherLocations: (query) => ipcRenderer.invoke('weather:search', query),
   listWeatherRegions: (parentCode) => ipcRenderer.invoke('weather:regions', parentCode),
   resolveWeatherRegion: (code) => ipcRenderer.invoke('weather:resolve-region', code),
+  saveWeatherLocation: (id, code) => ipcRenderer.invoke('weather:save-location', id, code),
   getWeather: (location) => ipcRenderer.invoke('weather:get', location),
   onWidgetActiveChange: (callback) => {
     const listener = (_event, active) => callback(active);

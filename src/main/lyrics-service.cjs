@@ -47,7 +47,7 @@ class LyricsService {
     if (cached && cached.expiresAt > this.now()) return cached.value;
     if (this.pending.has(key)) return this.pending.get(key);
     const request = this.#lookup(track).then(value => {
-      this.cache.set(key, { value, expiresAt: this.now() + (value?.error ? 10_000 : value ? CACHE_TTL_MS : 30_000) });
+      this.cache.set(key, { value, expiresAt: this.now() + (value?.error ? 10_000 : value?.lines?.length ? CACHE_TTL_MS : 30_000) });
       return value;
     }).finally(() => this.pending.delete(key));
     this.pending.set(key, request);

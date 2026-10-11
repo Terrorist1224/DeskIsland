@@ -4,6 +4,7 @@ const mediaCommands = new Set(['toggle', 'next', 'previous', 'seek']);
 const { listWeatherRegions, getWeatherRegionPath } = require('./weather-regions.cjs');
 
 function registerHandlers({ store, getWindowsHost, weatherService, weatherSettings, openWeatherLink, lyricsService, widgetWindows, getInitialOrigin, getControlWindow, getAppInfo, getStartupSettings, setStartupSettings }) {
+  const savingLocations = new Set();
   function requireControl(event) {
     if (event.sender !== getControlWindow()?.webContents) throw new Error('此操作只能在主窗口执行');
   }
@@ -143,6 +144,27 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
     requireControl(event);
     return weatherService.resolveRegion(getWeatherRegionPath(code));
   });
+  ipcMain.handle('weather:save-location', async (event, id, code) => {
+    requireControl(event);
+    if (typeof id !== 'string' || !id || id.length > 64) throw new TypeError('Invalid widget id');
+    const path = getWeatherRegionPath(code);
+    const requireWeather = () => {
+      if (!store.list().some(item => item.id === id && item.typeId === 'weather')) throw new Error('找不到天气磁贴，请重新打开设置页');
+    };
+    requireWeather();
+    if (savingLocations.has(id)) throw new Error('该磁贴地点正在保存，请稍候');
+    savingLocations.add(id);
+    try {
+      // Main owns the entire operation; renderer navigation cannot interrupt persistence.
+      const location = await weatherService.resolveRegion(path);
+      requireWeather();
+      if (!store.updateSettings(id, { location })) throw new Error('找不到天气磁贴，请重新打开设置页');
+      widgetWindows.windows.get(id)?.webContents.send('widget:settings');
+      return location;
+    } finally {
+      savingLocations.delete(id);
+    }
+  });
 }
 
 function unregisterWidgetHandlers() {
@@ -165,6 +187,7 @@ function unregisterWidgetHandlers() {
   ipcMain.removeHandler('weather:get');
   ipcMain.removeHandler('weather:regions');
   ipcMain.removeHandler('weather:resolve-region');
+  ipcMain.removeHandler('weather:save-location');
 }
 
 module.exports = { registerHandlers, unregisterWidgetHandlers };

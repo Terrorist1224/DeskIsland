@@ -123,6 +123,7 @@ export interface DesktopIslandBridge {
   searchWeatherLocations(query: string): Promise<WeatherLocation[]>;
   listWeatherRegions(parentCode?: string): Promise<WeatherRegion[]>;
   resolveWeatherRegion(code: string): Promise<WeatherLocation>;
+  saveWeatherLocation(widgetId: string, regionCode: string): Promise<WeatherLocation>;
   getWeather(location: WeatherLocation): Promise<WeatherSnapshot>;
   onWidgetActiveChange(callback: (active: boolean) => void): () => void;
 }

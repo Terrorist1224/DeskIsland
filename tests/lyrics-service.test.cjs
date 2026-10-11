@@ -56,6 +56,25 @@ test('caches successful lookups for the active track', async () => {
   assert.equal(requestCount, 1);
 });
 
+test('plain lyrics expire so a temporary fallback can recover synchronized lines', async () => {
+  let now = 1000;
+  let synchronized = false;
+  let calls = 0;
+  const service = new LyricsService({ now: () => now, fetchImpl: async () => {
+    calls++;
+    return { ok:true, json:async()=>({trackName:'Song',artistName:'Artist',plainLyrics:'测试纯文本',syncedLyrics:synchronized?'[00:01.00]恢复同步歌词':null}) };
+  } });
+  const track={title:'Song',artist:'Artist'};
+  assert.equal((await service.getLyrics(track)).lines.length,0);
+  synchronized=true;
+  now+=29_999;
+  assert.equal((await service.getLyrics(track)).lines.length,0);
+  assert.equal(calls,1);
+  now++;
+  assert.equal((await service.getLyrics(track)).lines[0].text,'恢复同步歌词');
+  assert.equal(calls,2);
+});
+
 const qqSong = { title: '测试歌曲', mid: 'TestMid', singer: [{ name: '测试歌手' }], album: { name: '测试专辑' }, interval: 120 };
 const qqSearchResponse = (songs) => ({ ok: true, json: async () => ({ code: 0, req_1: { code: 0, data: { body: { song: { list: songs } } } } }) });
 

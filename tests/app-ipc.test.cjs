@@ -14,12 +14,12 @@ test('startup IPC requires control window and boolean input, then returns actual
   const control = {};
   let enabled = false;
   registerHandlers({ getControlWindow: () => ({ webContents: control }),
-    getAppInfo: () => ({ version: '1.0.0' }),
+    getAppInfo: () => ({ version: '1.0.1' }),
     getStartupSettings: () => ({ supported: true, enabled }),
     setStartupSettings: value => ({ supported: true, enabled: enabled = value }),
   });
   const get = handlers.get('app:get-startup'), set = handlers.get('app:set-startup');
-  assert.deepEqual(handlers.get('app:info')(), { version: '1.0.0' });
+  assert.deepEqual(handlers.get('app:info')(), { version: '1.0.1' });
   assert.throws(() => get({ sender: {} }), /主窗口/);
   assert.throws(() => set({ sender: {} }, true), /主窗口/);
   assert.throws(() => set({ sender: control }, 'true'), /Invalid/);

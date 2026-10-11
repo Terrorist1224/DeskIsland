@@ -176,13 +176,13 @@ function Get-MediaSession {
 
 function Get-MediaSnapshot {
   $session = Get-MediaSession
-  if (-not $session) { return @{ available = $false } }
+  if (-not $session) { $script:mediaTiming = $null; return @{ available = $false } }
 
   $properties = Wait-WinRtOperation -Operation $session.TryGetMediaPropertiesAsync() -ResultType $script:mediaPropertiesType
   $playback = $session.GetPlaybackInfo()
   $timeline = $session.GetTimelineProperties()
-  $timing = Get-MediaTiming -Timeline $timeline -Playback $playback -SourceId $session.SourceAppUserModelId
   $artworkKey = @($session.SourceAppUserModelId, $properties.Title, $properties.Artist, $properties.AlbumTitle) | ConvertTo-Json -Compress
+  $timing = Get-MediaTiming -Timeline $timeline -Playback $playback -SourceId $session.SourceAppUserModelId -TrackKey $artworkKey
   if ($artworkKey -ne $script:artworkKey) {
     $script:artworkKey = $artworkKey
     $script:artworkDataUrl = $null
@@ -237,7 +237,7 @@ function Read-MediaArtwork {
 }
 
 function Get-MediaTiming {
-  param($Timeline, $Playback, [string]$SourceId, [DateTimeOffset]$Now = [DateTimeOffset]::UtcNow)
+  param($Timeline, $Playback, [string]$SourceId, [DateTimeOffset]$Now = [DateTimeOffset]::UtcNow, [string]$TrackKey = '')
   $status = $Playback.PlaybackStatus.ToString()
   # QQ can leave SMTC in Changing after a skip; use unambiguous play/pause capabilities in that case.
   if ($SourceId -match 'qqmusic' -and $status -eq 'Changing') {
@@ -245,11 +245,18 @@ function Get-MediaTiming {
     elseif ($Playback.Controls.IsPlayEnabled -and -not $Playback.Controls.IsPauseEnabled) { $status = 'Paused' }
   }
   $position = $Timeline.Position.Ticks
-  # SMTC Position belongs to LastUpdatedTime, not the time this worker reads it (100 ns ticks).
-  if ($status -eq 'Playing') {
+  $sourceKey = @($SourceId, $TrackKey, $Timeline.Position.Ticks, $Timeline.EndTime.Ticks, $Timeline.LastUpdatedTime.UtcTicks) | ConvertTo-Json -Compress
+  $key = @($sourceKey, $status) | ConvertTo-Json -Compress
+  if ($script:mediaTiming -and $script:mediaTiming.key -eq $key -and $Now -ge $script:mediaTiming.observedAt) {
+    $position = $script:mediaTiming.position
+    if ($status -eq 'Playing') { $position += ($Now - $script:mediaTiming.observedAt).Ticks }
+  } else {
+    # Fresh source timestamps seed the anchor; old paused timestamps must not add paused time on resume.
     $age = $Now - $Timeline.LastUpdatedTime
-    # ponytail: ignore timestamps older than 5 s (QQ resume keeps a paused timestamp); revisit for slower timeline publishers.
-    if ($age.Ticks -ge 0 -and $age.TotalSeconds -le 5) { $position += $age.Ticks }
+    if ($status -eq 'Playing' -and $age.Ticks -ge 0 -and $age.TotalSeconds -le 5 -and
+        (-not $script:mediaTiming -or $script:mediaTiming.sourceKey -ne $sourceKey)) { $position += $age.Ticks }
+    # Keep this anchor in the worker so sparse QQ updates and tile recreation cannot freeze progress.
+    $script:mediaTiming = @{ key = $key; sourceKey = $sourceKey; observedAt = $Now; position = $position }
   }
   # Explicit Int64 operands prevent PowerShell from reusing an Int32 overload after shorter tracks (100 ns ticks).
   return @{ playbackStatus = $status; positionTicks = [Math]::Max([long]0, [Math]::Min([long]$Timeline.EndTime.Ticks, [long]$position)) }

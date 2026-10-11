@@ -16,6 +16,7 @@ const editMode = ref(false);
 const busy = ref(false);
 const errorMessage = ref('');
 const weatherEnabled = ref(true);
+const savingLocations = ref<Record<string, boolean>>({});
 const weatherWidgets = computed(() => widgets.value.filter(item => item.typeId === 'weather'));
 const focusedWeatherId = ref('');
 const credentialStatus = ref<Awaited<ReturnType<typeof bridge.getWeatherCredentialsStatus>>>({ configured: false, host: '', mode: 'none', error: '' });
@@ -51,11 +52,23 @@ async function openSettings() {
   settingsPage.value = true;
   await run(async () => { startup.value = await bridge.getStartupSettings(); });
 }
-async function changeStartup(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const enabled = input.checked;
-  input.checked = startup.value.enabled;
+async function changeStartup() {
+  const enabled = !startup.value.enabled;
   await run(async () => { startup.value = await bridge.setStartupSettings(enabled); });
+}
+async function saveWeatherLocation(id: string, code: string) {
+  if (savingLocations.value[id]) return;
+  savingLocations.value[id] = true;
+  errorMessage.value = '';
+  try {
+    const location = await bridge.saveWeatherLocation(id, code);
+    const widget = widgets.value.find(item => item.id === id);
+    if (widget) widget.settings.location = location;
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : '保存地点失败，请重试';
+  } finally {
+    delete savingLocations.value[id];
+  }
 }
 async function toggleWidget(typeId: WidgetType) {
   await run(async () => {
@@ -96,6 +109,7 @@ async function setWeatherVariant(widget: WidgetInstance, event: Event) {
   await run(async () => { await bridge.setWidgetVariant(widget.id, variantId); await refresh(); });
 }
 async function removeWeather(id: string) {
+  if (savingLocations.value[id]) return;
   await run(async () => { await bridge.removeWidget(id); await refresh(); });
 }
 async function saveCredentials() {
@@ -148,11 +162,11 @@ onBeforeUnmount(() => {removeEditListener?.();removeWeatherListener?.();removeEr
         <p v-if="editMode" class="edit-hint" role="status">拖动磁贴任意区域，四角等比缩放，松手按网格对齐。编辑时内部控件暂停操作，按 Esc 或「完成编辑」锁定布局。</p>
         <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
         <section v-if="settingsPage" class="general-settings" aria-label="程序设置">
-          <label><input type="checkbox" :checked="startup.enabled" :disabled="busy || !startup.supported" @change="changeStartup" />开机自启</label>
-          <p>登录 Windows 后恢复桌面磁贴和托盘，不打开主控窗口。</p>
+          <div class="startup-setting"><span>开机自启</span><button type="button" class="widget-switch" role="switch" aria-label="开机自启" :aria-checked="startup.enabled" :disabled="busy || !startup.supported" @click="changeStartup"><span></span></button></div>
           <p v-if="!startup.supported" role="status">开发测试模式不修改 Windows 启动项，请在安装后的桌屿中设置。</p>
         </section>
-        <section v-if="!settingsPage && selectedType === 'weather'" class="weather-settings" aria-label="天气磁贴列表">
+        <!-- Keep region drafts mounted while navigating, including failed saves. -->
+        <section v-show="!settingsPage && selectedType === 'weather'" class="weather-settings" aria-label="天气磁贴列表">
           <details class="weather-credentials">
             <summary>和风天气账户 · {{ credentialStatus.configured ? '已配置个人 KEY' : '未配置' }}</summary>
             <p>使用自己的免费注册账户与额度。启用磁贴时获取天气，之后每小时刷新；每次刷新包含 2 次 API 请求。</p>
@@ -173,10 +187,10 @@ onBeforeUnmount(() => {removeEditListener?.();removeWeatherListener?.();removeEr
             <thead><tr><th scope="col">选择地区</th><th scope="col">显示</th><th scope="col">类别</th><th scope="col">删除</th></tr></thead>
             <tbody>
               <tr v-for="(widget, index) in weatherWidgets" :id="`weather-row-${widget.id}`" :key="widget.id" tabindex="-1" :class="{ focused: focusedWeatherId === widget.id }">
-                <td><WeatherLocationSettings :widget-id="widget.id" :location="(widget.settings.location as WeatherLocation | null)" :disabled="busy" @saved="location => widget.settings.location = location" /></td>
+                <td><WeatherLocationSettings :location="(widget.settings.location as WeatherLocation | null)" :disabled="busy" :saving="!!savingLocations[widget.id]" @save="code => saveWeatherLocation(widget.id, code)" /></td>
                 <td><button type="button" class="widget-switch" role="switch" :aria-label="`显示第 ${index + 1} 个天气磁贴`" :aria-checked="widget.enabled" :disabled="busy" @click="toggleWeather(widget)"><span></span></button></td>
                 <td><select :aria-label="`第 ${index + 1} 个天气磁贴类别`" :value="widget.variantId" :disabled="busy" @change="setWeatherVariant(widget, $event)"><option v-for="variant in getWidgetDefinition('weather').variants" :key="variant.id" :value="variant.id">{{ variant.title }}</option></select></td>
-                <td><button type="button" :aria-label="`删除第 ${index + 1} 个天气磁贴`" :disabled="busy" @click="removeWeather(widget.id)">删除</button></td>
+                <td><button type="button" :aria-label="`删除第 ${index + 1} 个天气磁贴`" :disabled="busy || !!savingLocations[widget.id]" @click="removeWeather(widget.id)">删除</button></td>
               </tr>
               <tr v-if="!weatherWidgets.length"><td colspan="4" class="empty">点击「添加天气磁贴」选择地区，新建磁贴默认不显示。</td></tr>
             </tbody>
@@ -203,7 +217,7 @@ onBeforeUnmount(() => {removeEditListener?.();removeWeatherListener?.();removeEr
 </template>
 
 <style>
-.settings-button{position:absolute;bottom:24px;left:14px;width:132px}.settings-button.selected{background:#ffffff14;font-weight:600}.general-settings{padding:20px;border:1px solid #ffffff26;border-radius:12px;background:#ffffff08}.general-settings label{display:flex;align-items:center;gap:10px}.general-settings p{font-size:12px;line-height:1.7;color:#e6e2e6}.general-settings input:focus-visible{outline:2px solid #eee9ef;outline-offset:3px}
+.settings-button{position:absolute;bottom:24px;left:14px;width:132px}.settings-button.selected{background:#ffffff14;font-weight:600}.general-settings{padding:20px;border:1px solid #ffffff26;border-radius:12px;background:#ffffff08}.startup-setting{display:flex;align-items:center;gap:10px}.general-settings p{font-size:12px;line-height:1.7;color:#e6e2e6}.widget-switch:focus-visible{outline:2px solid #eee9ef;outline-offset:3px}
 *{box-sizing:border-box}html,body,#app{height:100%;margin:0;background:transparent}body{font-family:"Segoe UI","Microsoft YaHei UI",sans-serif;color:#fafafa;font-size:14px;color-scheme:dark}button,input{font:inherit}button{cursor:pointer;color:inherit}button:disabled{cursor:default}button:focus-visible,input:focus-visible{outline:2px solid #eee9ef;outline-offset:3px}
 .control{user-select:none;height:100%;overflow:hidden;background:rgba(8,10,14,.46);border:1px solid #ffffff40fff42;border-radius:20px;backdrop-filter:blur(16px) saturate(1.15);display:flex;flex-direction:column}.titlebar{height:54px;flex:none;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #ffffff14;-webkit-app-region:drag;padding-left:23px;user-select:none}.brand{font-size:15px;font-weight:600}.brand span{font-size:12px;color:#e6e2e6;font-weight:400;margin-left:10px}.window-actions{display:flex;height:100%;-webkit-app-region:no-drag}.window-actions button{width:48px;border:0;background:transparent;font-size:21px}.window-actions button:hover{background:#ffffff14}.window-actions button:last-child:hover{background:#b93434;color:white}
 .app-layout{display:grid;grid-template-columns:160px 1fr;min-height:0;flex:1}.sidebar{position:relative;padding:28px 14px;border-right:1px solid #ffffff14}.sidebar p{font-size:12px;margin:0 12px 16px;color:#e6e2e6}.category-row{display:flex;align-items:center;border-radius:10px;margin-bottom:6px;padding-right:10px}.category-row.selected{background:#ffffff14}.category-button{flex:1;min-width:0;border:0;background:transparent;padding:12px;text-align:left;border-radius:10px}.category-row.selected .category-button{font-weight:600}.widget-switch{flex:none;width:34px;height:20px;padding:2px;border:1px solid #ffffff40;border-radius:12px;background:#ffffff14}.widget-switch span{display:block;width:14px;height:14px;border-radius:50%;background:#e6e2e6;transition:transform .15s}.widget-switch[aria-checked="true"]{background:#eee9ef;border-color:#eee9ef}.widget-switch[aria-checked="true"] span{background:#28252a;transform:translateX(14px)}.widget-switch:disabled{opacity:.5}.content{padding:28px;overflow:auto;min-width:0}.section-heading{display:flex;align-items:center;justify-content:space-between;margin-bottom:22px}.section-heading h1{font-weight:550;font-size:25px;margin:0}.edit-button{border:1px solid #ffffff40;background:#ffffff10;border-radius:10px;padding:11px 15px}.edit-button.active{background:#eee9ef;color:#28252a}.edit-hint{font-size:12px;line-height:1.6;padding:10px;background:#ffffff14;border-radius:8px}.error{color:#ffc6aa;font-size:13px;overflow-wrap:anywhere}.catalog-grid{display:grid;grid-template-columns:240px minmax(0,1fr);gap:16px}.variant-card{min-width:0;border:1px solid transparent;background:#ffffff08;border-radius:16px;padding:15px}.variant-card.chosen{border-color:#eee9ef}.variant-title{display:flex;justify-content:space-between;gap:8px;align-items:center}.variant-title h2{font-size:14px;font-weight:500;margin:0}.variant-title span{font-size:12px;color:#e6e2e6}.preview-area{height:270px;display:flex;align-items:center;justify-content:center}.preview-tile,.preview-weather{background:rgba(8,10,14,.34);border:1px solid #ffffff40;border-radius:20px;box-shadow:0 8px 23px #00000026;backdrop-filter:blur(16px) saturate(1.1);overflow:hidden}.preview-square{width:208px;height:208px;flex:none}.preview-square .music-face{width:240px;height:240px;transform:scale(.8666667);transform-origin:top left}.preview-wide{width:333px;height:167px;flex:none}.preview-wide .music-face{width:416px;height:208px;transform:scale(.8);transform-origin:top left}.variant-action{width:100%;padding:10px;border:1px solid transparent;border-radius:8px;background:#eee9ef;color:#28252a}.variant-action.current{background:transparent;border-color:#fff;color:#fafafa}.preview-weather{width:240px;height:192px;padding:18px;flex:none}.preview-weather>div{font-size:12px;color:#e6e2e6;display:flex;justify-content:space-between}.preview-weather strong{font-size:45px;font-weight:350;display:block;margin-top:8px}.preview-weather p{font-size:13px;margin:4px 0 14px}.preview-weather small{font-size:11px;color:#e6e2e6;line-height:1.8}
