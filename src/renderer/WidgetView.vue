@@ -294,7 +294,7 @@ onBeforeUnmount(() => {
       :lyric-line="media?.timelineAvailable === false ? undefined : currentLyric" :lyric-end-seconds="lyricEndSeconds" :lyric="media?.timelineAvailable === false ? '未提供播放时间，歌词同步不可用' : currentLyric?.text || (lyricsLoading ? '正在获取歌词…' : lyricsError ? lyricAttempts < 3 ? '正在重试歌词…' : '歌词暂时无法获取' : lyrics?.lines.length ? '等待歌词开始' : lyrics?.plainLyrics ? '暂无同步歌词' : lyricTrackKey ? '暂无匹配歌词' : '等待歌词')"
       @command="sendMediaCommand" />
 
-    <CountdownTile v-else-if="widget.typeId === 'countdown'" />
+    <CountdownTile v-else-if="widget.typeId === 'countdown'" :compact="compact" />
     <TodoTile v-else-if="widget.typeId === 'todo'" :items="widget.settings.items as TodoItem[]" :editing="editMode" @saved="items => { if(widget) widget.settings.items = items; }" />
     <section v-else class="weather" :class="{'weather--compact':compact}">
       <template v-if="selectedLocation">

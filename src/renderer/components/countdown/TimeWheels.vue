@@ -17,7 +17,7 @@ watch(() => units.map((_,index) => value(index)), (next, previous) => {
     const offset=new DOMMatrixReadOnly(getComputedStyle(track).transform).m42;
     animations[index]?.cancel();
     if(window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-    animations[index]=track.animate([{transform:`translateY(${offset+Math.sign(delta)*Math.min(2,Math.abs(delta))*26}px)`},{transform:'translateY(0)'}],{duration:180,easing:'cubic-bezier(.2,.7,.2,1)'});
+    animations[index]=track.animate([{transform:`translateY(${offset+Math.sign(delta)*Math.min(2,Math.abs(delta))*32}px)`},{transform:'translateY(0)'}],{duration:180,easing:'cubic-bezier(.2,.7,.2,1)'});
   });
 }, {flush:'post'});
 onBeforeUnmount(()=>animations.forEach(animation=>animation?.cancel()));
@@ -37,8 +37,8 @@ function down(event: PointerEvent, index: number) {
 }
 function move(event: PointerEvent) {
   if (!drag) return;
-  const steps = Math.trunc((drag.y - event.clientY) / (26 * drag.scale));
-  if (steps) { change(drag.index, steps);drag.y -= steps * 26 * drag.scale; }
+  const steps = Math.trunc((drag.y - event.clientY) / (32 * drag.scale));
+  if (steps) { change(drag.index, steps);drag.y -= steps * 32 * drag.scale; }
 }
 </script>
 <template>
@@ -46,10 +46,10 @@ function move(event: PointerEvent) {
     <div v-for="(unit,index) in units" :key="unit.label" class="time-wheel" role="spinbutton" tabindex="0" :aria-label="unit.label" :aria-valuemin="0" :aria-valuemax="unit.max" :aria-valuenow="value(index)"
       @wheel.prevent="change(index,$event.deltaY > 0 ? 1 : -1)" @keydown.up.prevent="change(index,-1)" @keydown.down.prevent="change(index,1)"
       @pointerdown="down($event,index)" @pointermove="move" @pointerup="drag=null" @pointercancel="drag=null" @lostpointercapture="drag=null">
-      <div :ref="element=>{if(element) tracks[index]=element as HTMLElement}" class="wheel-track"><button v-for="offset in [-3,-2,-1,0,1,2,3]" :key="offset" type="button" tabindex="-1" :style="{top:`${53+offset*26}px`}" :class="{'wheel-selected':offset===0,'wheel-far':Math.abs(offset)>=2}" @click="change(index,offset)">{{ String((value(index)+offset+unit.max+1)%(unit.max+1)).padStart(2,'0') }}</button></div><small>{{ unit.label }}</small>
+      <div :ref="element=>{if(element) tracks[index]=element as HTMLElement}" class="wheel-track"><button v-for="offset in [-3,-2,-1,0,1,2,3]" :key="offset" type="button" tabindex="-1" :style="{top:`${47+offset*32}px`}" :class="{'wheel-selected':offset===0,'wheel-far':Math.abs(offset)>=2}" @click="change(index,offset)">{{ String((value(index)+offset+unit.max+1)%(unit.max+1)).padStart(2,'0') }}</button></div><small>{{ unit.label }}</small>
     </div>
   </div>
 </template>
 <style scoped>
- .time-wheels{display:flex;justify-content:space-between;width:100%;height:132px}.time-wheel{position:relative;overflow:hidden;width:32%;height:132px;touch-action:none;cursor:ns-resize;mask-image:linear-gradient(transparent,#000 18%,#000 82%,transparent)}.wheel-track{position:absolute;inset:0;will-change:transform}.time-wheel button{position:absolute;left:0;height:26px;line-height:26px;border:0;background:none;color:#ffffff55;font:inherit;font-size:17px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0;width:100%;cursor:inherit}.time-wheel .wheel-selected{color:#f4f4f5;font-size:29px}.time-wheel .wheel-far{color:#ffffff20;font-size:12px}.time-wheel small{position:absolute;right:0;top:53px;height:26px;display:flex;align-items:center;font-size:10px;color:#b5b8c1;pointer-events:none}.time-wheel:focus-visible{outline:2px solid #bedae4;border-radius:8px}
+ .time-wheels{display:flex;justify-content:space-between;width:100%;height:132px}.time-wheel{position:relative;overflow:hidden;width:32%;height:132px;touch-action:none;cursor:ns-resize;mask-image:linear-gradient(transparent,#000 18%,#000 82%,transparent)}.wheel-track{position:absolute;inset:0;will-change:transform}.time-wheel button{position:absolute;left:0;height:32px;line-height:32px;border:0;background:none;color:#ffffff55;font:inherit;font-size:24px;line-height:1;display:flex;align-items:center;justify-content:center;padding:0;width:calc(100% - 20px);cursor:inherit}.time-wheel .wheel-selected{color:#f4f4f5;font-size:36px}.time-wheel .wheel-far{color:#ffffff20;font-size:18px}.time-wheel small{position:absolute;right:0;top:47px;height:32px;display:flex;align-items:center;font-size:18px;color:#b5b8c1;pointer-events:none}.time-wheel:focus-visible{outline:2px solid #bedae4;border-radius:8px}
 </style>
