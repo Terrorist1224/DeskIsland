@@ -6,9 +6,21 @@ const { randomUUID } = require('node:crypto');
 const { WidgetStore } = require('../src/main/widget-store.cjs');
 const { TodoReminders } = require('../src/main/todo-reminders.cjs');
 const { validateTodoInput } = require('../src/shared/todo.cjs');
-const { parseTodoTime, formatTodoTime } = require('../src/shared/todo.ts');
+const { parseTodoTime, formatTodoTime, todoCalendarDays } = require('../src/shared/todo.ts');
 const { fitBoundsToGrid, resizeFromCorner } = require('../src/shared/grid.cjs');
 const catalog = require('../src/shared/widget-catalog.json');
+
+test('calendar cells use Monday first, actual month lengths and literal years below 100', () => {
+  const leap = todoCalendarDays('2028-02');
+  assert.deepEqual(leap.slice(0, 3), [null, 1, 2]);
+  assert.equal(leap.at(-1), 29);
+  assert.equal(todoCalendarDays('2026-02').at(-1), 28);
+  assert.equal(todoCalendarDays('2026-02').indexOf(1), 6);
+  assert.equal(todoCalendarDays('2026-06').indexOf(1), 0);
+  assert.equal(todoCalendarDays('0096-02').at(-1), 29);
+  assert.equal(todoCalendarDays('2026-12').at(-1), 31);
+  for (const invalid of ['', '2026-00', '2026-13', '0000-01']) assert.deepEqual(todoCalendarDays(invalid), []);
+});
 
 function fixture(t) {
   const directory = path.join(__dirname, '../.tmp/tests', `todo-${randomUUID()}`);

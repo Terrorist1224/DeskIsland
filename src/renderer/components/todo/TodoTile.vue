@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { TodoColor, TodoItem } from '../../../shared/contracts';
 import { TODO_COLORS, formatTodoTime, parseTodoTime } from '../../../shared/todo';
+import TodoReminderFields from './TodoReminderFields.vue';
 
 const props = defineProps<{ items: TodoItem[]; preview?: boolean; editing?: boolean }>();
 const emit = defineEmits<{ saved: [items: TodoItem[]] }>();
@@ -202,7 +203,7 @@ watch(() => props.items, items => {
       <span v-else class="todo-label">待办</span>
       <button type="button" class="todo-add" aria-label="添加待办" :disabled="preview || busy" @click="create"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16" fill="none" stroke="currentColor" stroke-width="2"/></svg></button>
     </footer>
-    <form v-if="creating" class="todo-composer" :style="{ background: background(color) }" @submit.prevent="submit">
+    <form v-if="creating" class="todo-composer" :style="{ background: background(color), '--todo-yellow': background('yellow') }" @submit.prevent="submit">
       <textarea ref="input" v-model="text" rows="2" maxlength="2000" placeholder="请输入待办，回车创建" aria-label="待办内容" :disabled="busy" @keydown="enter"></textarea>
       <div class="todo-tools">
         <button type="button" aria-label="选择待办颜色" :aria-expanded="paletteOpen" :disabled="busy" @click="paletteOpen = !paletteOpen">
@@ -216,11 +217,7 @@ watch(() => props.items, items => {
       <div v-if="paletteOpen" class="todo-palette" aria-label="预设低饱和颜色">
         <button v-for="choice in TODO_COLORS" :key="choice.id" type="button" :aria-label="choice.name" :aria-pressed="color === choice.id" :style="{ background: choice.value }" :disabled="busy" @click="color = choice.id; paletteOpen = false"></button>
       </div>
-      <div v-if="reminderOpen" class="todo-reminder-fields">
-        <label>日期<input v-model="date" type="date" required aria-label="提醒日期" :disabled="busy" /></label>
-        <div class="todo-clock-fields"><label v-for="(unit,index) in ['时','分','秒']" :key="unit">{{ unit }}<select v-model="time[index]" :aria-label="`提醒${unit}`" :disabled="busy"><option v-for="value in index === 0 ? 24 : 60" :key="value" :value="String(value - 1).padStart(2, '0')">{{ String(value - 1).padStart(2, '0') }}</option></select></label></div>
-        <small>按本机时间提醒，精确到秒</small>
-      </div>
+      <TodoReminderFields v-if="reminderOpen" v-model:date="date" v-model:time="time" :disabled="busy" />
       <p v-if="error" class="todo-error" role="alert">{{ error }}</p>
     </form>
     <p v-else-if="error" class="todo-error todo-error--floating" role="alert">{{ error }}</p>
@@ -228,10 +225,9 @@ watch(() => props.items, items => {
 </template>
 
 <style>
-.todo-clock-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}.todo-clock-fields select{width:100%;min-width:0;font:inherit;color:inherit;background:#FFFFFFA0;border:1px solid #24292C35;border-radius:6px;padding:4px 0}.todo-clock-fields select:focus-visible{outline:2px solid #293F4A;outline-offset:-2px}
 .todo-face{position:relative;display:flex;flex-direction:column;width:100%;height:100%;min-height:0;background:#BEDAE4;color:#24292C;overflow:hidden;border-radius:inherit;font-family:"Segoe UI","Microsoft YaHei UI",sans-serif;color-scheme:light}
 .todo-face *{box-sizing:border-box}.todo-face button,.todo-face input,.todo-face textarea{font:inherit;color:inherit}.todo-face button{cursor:pointer}.todo-face button:focus-visible,.todo-face input:focus-visible,.todo-face textarea:focus-visible,.todo-row:focus-visible,.todo-list:focus-visible{outline:2px solid #293F4A;outline-offset:-3px}
 .todo-list{position:relative;flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none}.todo-list::-webkit-scrollbar,.todo-composer::-webkit-scrollbar{display:none}.todo-row{min-height:64px;padding:16px;display:flex;flex-direction:column;justify-content:center;gap:6px;border-bottom:1px solid #24292C18;cursor:pointer;touch-action:pan-y;user-select:none}.todo-row--dragging{opacity:0}.todo-reorder-move{transition:transform 180ms ease}.todo-drag-ghost{position:absolute;top:0;left:0;right:0;z-index:2;pointer-events:none;box-shadow:0 4px 16px #0002;overflow:hidden}.todo-drag-ghost--settling{transition:transform 180ms ease}.todo-text{font-size:18px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}.todo-time{font-size:11px;line-height:1.5;overflow-wrap:anywhere;color:#3E4B50}.todo-empty{font-size:13px;text-align:center;margin:24px 12px;color:#465D67}
 .todo-footer{flex:none;height:48px;display:flex;align-items:center;justify-content:space-between;padding:4px 12px 4px 16px}.todo-label{font-size:18px;line-height:1.45}.todo-add{border:0;background:#FFFFFFDD;border-radius:50%;width:38px;height:38px;display:grid;place-items:center;padding:0;flex:none}.todo-add svg{display:block;width:24px;height:24px}.todo-confirm-actions{display:flex;gap:8px;align-items:center;font-size:18px}.todo-confirm-actions button{border:1px solid #24292C25;border-radius:7px;min-width:32px;min-height:32px;padding:0 6px;line-height:1.45}
-.todo-composer{position:absolute;inset:auto 6px 6px;max-height:calc(100% - 12px);overflow:auto;scrollbar-width:none;padding:10px;border:1px solid #24292C35;border-radius:14px;box-shadow:0 4px 18px #0002}.todo-composer textarea{display:block;width:100%;min-width:0;resize:none;border:0;border-radius:6px;background:#FFFFFF70;padding:8px;font-size:14px;line-height:1.5}.todo-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}.todo-tools button{border:1px solid #24292C25;border-radius:8px;background:#FFFFFF85;min-width:32px;min-height:32px;padding:5px}.todo-tools svg{display:block;width:20px;height:20px}.todo-tools [aria-pressed="true"]{background:#FFF;border-color:#293F4A}.todo-submit{margin-left:auto}.todo-palette{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.todo-palette button{width:28px;height:28px;border-radius:50%;border:1px solid #24292C40}.todo-palette [aria-pressed="true"]{outline:2px solid #293F4A;outline-offset:2px}.todo-reminder-fields{margin-top:10px;display:grid;gap:6px;font-size:12px}.todo-reminder-fields label{display:grid;gap:3px;min-width:0}.todo-reminder-fields input{display:block;min-width:0;max-width:100%;width:100%;border:1px solid #24292C35;border-radius:6px;background:#FFFFFFA0;padding:5px;font-size:12px}.todo-reminder-fields small{font-size:10px}.todo-error{font-size:12px;line-height:1.4;color:#8C2020;overflow-wrap:anywhere;margin:8px 0 0}.todo-error--floating{position:absolute;bottom:50px;left:8px;right:8px;background:#FFF1E8;padding:8px;border-radius:8px}
+.todo-composer{position:absolute;inset:auto 6px 6px;max-height:calc(100% - 12px);overflow:auto;scrollbar-width:none;padding:10px;border:1px solid #24292C35;border-radius:14px;box-shadow:0 4px 18px #0002}.todo-composer textarea{display:block;width:100%;min-width:0;resize:none;border:0;border-radius:6px;background:#FFFFFF70;padding:8px;font-size:14px;line-height:1.5}.todo-tools{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}.todo-tools button{border:1px solid #24292C25;border-radius:8px;background:#FFFFFF85;min-width:32px;min-height:32px;padding:5px}.todo-tools svg{display:block;width:20px;height:20px}.todo-tools [aria-pressed="true"]{background:#FFF;border-color:#293F4A}.todo-submit{margin-left:auto}.todo-palette{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.todo-palette button{width:28px;height:28px;border-radius:50%;border:1px solid #24292C40}.todo-palette [aria-pressed="true"]{outline:2px solid #293F4A;outline-offset:2px}.todo-error{font-size:12px;line-height:1.4;color:#8C2020;overflow-wrap:anywhere;margin:8px 0 0}.todo-error--floating{position:absolute;bottom:50px;left:8px;right:8px;background:#FFF1E8;padding:8px;border-radius:8px}
 </style>

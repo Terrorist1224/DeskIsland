@@ -3,6 +3,18 @@ import type { TodoColor } from './contracts';
 
 export const TODO_COLORS = colors as { id: TodoColor; name: string; value: string }[];
 
+// Monday-first cells; use setFullYear because Date's constructor maps years 0–99 to 1900–1999.
+export function todoCalendarDays(month: string): (number | null)[] {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(month);
+  if (!match || Number(match[1]) === 0) return [];
+  const first = new Date(0);
+  first.setFullYear(Number(match[1]), Number(match[2]) - 1, 1);
+  const offset = (first.getDay() + 6) % 7;
+  const last = new Date(first);
+  last.setMonth(last.getMonth() + 1, 0);
+  return [...Array<null>(offset).fill(null), ...Array.from({ length: last.getDate() }, (_, index) => index + 1)];
+}
+
 export function formatTodoTime(timestamp: number): string {
   const date = new Date(timestamp);
   const pad = (value: number) => String(value).padStart(2, '0');
