@@ -1,6 +1,9 @@
-export type WidgetType = 'music' | 'weather' | 'todo';
+export type WidgetType = 'music' | 'weather' | 'todo' | 'countdown';
 export type TodoColor = 'yellow' | 'green' | 'blue' | 'orange' | 'pink';
 export interface TodoInput { text: string; color: TodoColor; remindAt: number | null }
+export interface CountdownPreset { id: string; name: string; seconds: number }
+export interface CountdownState { status: 'idle' | 'running' | 'paused' | 'finished'; seconds: number; name: string; remainingMs: number; deadline: number | null; color: string }
+export interface ReminderItem extends TodoItem { source?: 'todo' | 'countdown' }
 export interface TodoItem extends TodoInput { id: string; reminderState: 'pending' | 'notified' | 'missed' | null }
 export type WidgetVariant = 'square' | 'wide' | 'standard';
 export type EditGesture = 'move' | 'nw' | 'ne' | 'sw' | 'se';
@@ -92,6 +95,7 @@ export interface WeatherSnapshot {
 }
 
 export interface DesktopIslandBridge {
+  countdown(action: 'get' | 'select' | 'add' | 'delete' | 'start' | 'pause' | 'resume' | 'cancel' | 'acknowledge', input?: { seconds?: number; name?: string; id?: string }): Promise<{ state: CountdownState; seconds: number; presets: CountdownPreset[] }>;
   addTodo(input: TodoInput): Promise<TodoItem[]>;
   completeTodo(id: string): Promise<TodoItem[]>;
   moveTodo(id: string, beforeId: string | null): Promise<TodoItem[]>;
@@ -139,9 +143,9 @@ declare global {
   interface Window {
     deskIsland: DesktopIslandBridge;
     todoReminder: {
-      getItems(): Promise<TodoItem[]>;
+      getItems(): Promise<ReminderItem[]>;
       dismiss(): Promise<void>;
-      onItems(callback: (items: TodoItem[]) => void): () => void;
+      onItems(callback: (items: ReminderItem[]) => void): () => void;
     };
   }
 }

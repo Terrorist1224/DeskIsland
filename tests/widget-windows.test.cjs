@@ -20,6 +20,7 @@ class FakeWindow extends EventEmitter {
     FakeWindow.instances.push(this);
   }
   setAlwaysOnTop(value) { this.alwaysOnTop = value; }
+  isAlwaysOnTop() { return this.alwaysOnTop; }
   getNativeWindowHandle() { return Buffer.from([1, 0, 0, 0]); }
   setMovable(value) { this.movable = value; }
   setIgnoreMouseEvents(value) { this.ignoreMouse = value; }
@@ -36,6 +37,24 @@ class FakeWindow extends EventEmitter {
 }
 FakeWindow.instances = [];
 
+test('countdown expiry replaces the desktop HWND with a pinned window and acknowledgment restores desktop', async t => {
+  const directory=path.join(__dirname,'../.tmp/tests',`countdown-layer-${randomUUID()}`);
+  t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const {manager,store}=createHarness(directory);t.after(()=>manager.closeAll());
+  const calls=[];
+  manager.getWindowsHost=()=>({request:async(method,payload)=>{calls.push([method,payload]);return {installed:true,applied:true};}});
+  const widget=store.create('countdown'),window=manager.show(widget);
+  await new Promise(resolve=>setImmediate(resolve));
+  await manager.setCountdownReminder(widget.id,true);const pinned=manager.windows.get(widget.id);assert.equal(pinned.alwaysOnTop,true);assert.equal(window.destroyed,true);assert.deepEqual(pinned.getBounds(),window.getBounds());
+  const count=calls.length;manager.setEditMode(true);manager.setEditMode(false);
+  await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(calls.slice(count).filter(([method])=>method==='system.lower-widget').length,0);
+  await manager.setCountdownReminder(widget.id,false);assert.equal(pinned.destroyed,true);assert.equal(manager.windows.get(widget.id).alwaysOnTop,false);
+  assert.equal(window.options.movable,false);
+  assert.equal(window.listenerCount('will-move'),0);
+  assert.equal(manager.reminderWindows.size,0);
+});
+
 function createHarness(directory, shouldPause = false) {
   FakeWindow.instances = [];
   const store = new WidgetStore(directory);
@@ -51,6 +70,25 @@ function createHarness(directory, shouldPause = false) {
   });
   return { manager, store, cursor };
 }
+
+test('music and weather use transparent windows without native backdrop effects', async (t) => {
+  const directory = path.join(__dirname, '../.tmp/tests', `transparent-${randomUUID()}`);
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const { manager, store } = createHarness(directory);
+  t.after(() => manager.closeAll());
+  const requests = [];
+  manager.getWindowsHost = () => ({ request: async method => { requests.push(method);return { installed: true }; } });
+  for (const type of ['music', 'weather']) {
+    const window = manager.show(store.create(type));
+    assert.equal(window.options.transparent, true);
+    assert.equal(window.options.backgroundMaterial, 'none');
+    window.emit('ready-to-show');
+    window.emit('restore');
+    window.emit('resize');
+  }
+  await new Promise(resolve => setTimeout(resolve, 130));
+  assert.ok(!requests.includes('system.window-glass'));
+});
 
 test('weather master switch controls all enabled instances while preserving disabled rows and music', async (t) => {
   const directory = path.join(__dirname, '../.tmp/tests', `weather-group-${randomUUID()}`);

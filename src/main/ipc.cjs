@@ -3,8 +3,42 @@ const widgetTypes = new Set(require('../shared/widget-catalog.json').map((item) 
 const mediaCommands = new Set(['toggle', 'next', 'previous', 'seek']);
 const { listWeatherRegions, getWeatherRegionPath } = require('./weather-regions.cjs');
 
-function registerHandlers({ store, getWindowsHost, weatherService, weatherSettings, openWeatherLink, lyricsService, widgetWindows, todoReminders, reminderWindow, getInitialOrigin, getControlWindow, getAppInfo, getStartupSettings, setStartupSettings }) {
+function registerHandlers({ store, getWindowsHost, weatherService, weatherSettings, openWeatherLink, lyricsService, widgetWindows, countdown, todoReminders, reminderWindow, getInitialOrigin, getControlWindow, getAppInfo, getStartupSettings, setStartupSettings }) {
   const savingLocations = new Set();
+  ipcMain.handle('countdown:action', (event, action, input = {}) => {
+    const entry = [...widgetWindows.windows].find(([,window]) => !window.isDestroyed() && window.webContents === event.sender);
+    const widget = entry && store.list().find(item => item.id === entry[0]);
+    if (!widget || widget.typeId !== 'countdown' || !widget.enabled || (widgetWindows.editMode && action !== 'get')) throw new Error('此操作只能由开启的倒计时磁贴执行');
+    const { validateDuration } = require('../shared/countdown.cjs');
+    const { randomUUID } = require('node:crypto');
+    if (!input || typeof input !== 'object') throw new TypeError('Invalid countdown input');
+    const id = widget.id;
+    if (action === 'select') {
+      if (countdown.get(id).status !== 'idle') throw new Error('倒计时正在运行');
+      store.updateSettings(id, { seconds: validateDuration(input.seconds, true) });
+    } else if (action === 'add') {
+      if (typeof input.name !== 'string') throw new TypeError('Invalid preset name');
+      store.updateSettings(id, { presets: [...widget.settings.presets, {id: randomUUID(), name: input.name.trim(), seconds: validateDuration(input.seconds)}] });
+    } else if (action === 'delete') {
+      if (typeof input.id !== 'string') throw new TypeError('Invalid preset id');
+      store.updateSettings(id, { presets: widget.settings.presets.filter(item => item.id !== input.id) });
+    } else if (action === 'start') {
+      const preset = input.id === undefined ? null : widget.settings.presets.find(item => item.id === input.id);
+      if (input.id !== undefined && !preset) throw new Error('预设不存在');
+      const seconds = preset?.seconds ?? validateDuration(input.seconds);
+      if (countdown.get(id).status !== 'idle') throw new Error('倒计时正在运行');
+      store.updateSettings(id, {seconds});
+      countdown.start(id, seconds, preset?.name ?? '');
+    } else if (action === 'acknowledge') {
+      if(countdown.get(id).status !== 'finished') throw new Error('倒计时尚未结束');
+      return widgetWindows.setCountdownReminder(id,false).then(()=>{countdown.cancel(id);return {state:countdown.get(id),...store.list().find(item=>item.id===id).settings};});
+    } else if (['pause','resume','cancel'].includes(action)) {
+      if(countdown.get(id).status === 'finished') throw new Error('请先确认倒计时结束');
+      countdown[action](id);
+    }
+    else if (action !== 'get') throw new TypeError('Invalid countdown action');
+    return {state: countdown.get(id), ...store.list().find(item => item.id === id).settings};
+  });
   function requireControl(event) {
     if (event.sender !== getControlWindow()?.webContents) throw new Error('此操作只能在主窗口执行');
   }
@@ -58,6 +92,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
   ipcMain.handle('widgets:remove', (event, id) => {
     requireControl(event);
     if (typeof id !== 'string' || id.length > 64) throw new TypeError('Invalid widget id');
+    if(store.list().find(item=>item.id===id)?.typeId==='countdown') countdown.cancel(id);
     store.remove(id);
     widgetWindows?.remove(id);
     syncTodo(id);
@@ -72,6 +107,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
     requireControl(event);
     if (typeof id !== 'string' || id.length > 64 || typeof enabled !== 'boolean') throw new TypeError('Invalid widget enabled state');
     const widget = store.setEnabled(id, enabled);
+    if(widget.typeId==='countdown' && !enabled) countdown.cancel(id);
     if (enabled) widgetWindows.show(widget);
     else widgetWindows.remove(id);
     if(widget.typeId==='todo') { todoReminders?.reconcile(id);syncTodo(id); }
@@ -202,7 +238,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
 }
 
 function unregisterWidgetHandlers() {
-  for(const channel of ['todo:add','todo:complete','todo:move','todo-reminder:get','todo-reminder:dismiss','todo-reminder:preview']) ipcMain.removeHandler(channel);
+  for(const channel of ['countdown:action','todo:add','todo:complete','todo:move','todo-reminder:get','todo-reminder:dismiss','todo-reminder:preview']) ipcMain.removeHandler(channel);
   for (const channel of ['app:info', 'app:get-startup', 'app:set-startup']) ipcMain.removeHandler(channel);
   for (const channel of ['weather:credentials-status', 'weather:credentials-save', 'weather:open-link']) ipcMain.removeHandler(channel);
   ipcMain.removeHandler('weather:get-enabled');

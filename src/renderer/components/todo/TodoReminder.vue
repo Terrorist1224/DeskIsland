@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue';
-import type { TodoItem } from '../../../shared/contracts';
+import type { ReminderItem } from '../../../shared/contracts';
 import { TODO_COLORS, formatTodoTime } from '../../../shared/todo';
-const items = ref<TodoItem[]>([]);
+const items = ref<ReminderItem[]>([]);
 const now = ref(Date.now());
 const error = ref('');
 let timer: ReturnType<typeof setInterval>;
@@ -23,11 +23,11 @@ async function dismiss() {
 <template>
   <main class="reminder-page">
     <header><p>{{ formatTodoTime(now).split(' ')[0] }}</p><time>{{ formatTodoTime(now).split(' ')[1] }}</time></header>
-    <h1>待办时间到了</h1>
-    <section class="reminder-items" aria-label="到期待办" tabindex="0">
+    <h1>{{ items.every(item => item.source === 'countdown') ? '倒计时结束' : items.some(item => item.source === 'countdown') ? '到期提醒' : '待办时间到了' }}</h1>
+    <section class="reminder-items" aria-label="到期提醒" tabindex="0">
       <article v-for="item in items" :key="item.id" :style="{ background: TODO_COLORS.find(color => color.id === item.color)!.value }"><p>{{ item.text }}</p><small>{{ formatTodoTime(item.remindAt!) }}</small></article>
     </section>
-    <footer><p v-if="error" role="alert">{{ error }}</p><button type="button" @click="dismiss">关闭提醒</button><p>按 Esc 退出 · 待办事项会继续保留</p></footer>
+    <footer><p v-if="error" role="alert">{{ error }}</p><button type="button" @click="dismiss">关闭</button></footer>
   </main>
 </template>
 

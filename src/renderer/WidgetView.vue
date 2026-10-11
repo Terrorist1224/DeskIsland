@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import MusicTile from './components/MusicTile.vue';
+import CountdownTile from './components/countdown/CountdownTile.vue';
 import TodoTile from './components/todo/TodoTile.vue';
 import type { TodoItem } from '../shared/contracts';
 import WeatherIcon from './components/WeatherIcon.vue';
@@ -49,6 +50,7 @@ const baseSize=computed(()=>widget.value ? getWidgetDefinition(widget.value.type
 const compact=computed(()=>liveWidth.value<baseSize.value.width);
 const contentStyle=computed(()=>{
   if(widget.value?.typeId==='todo') return {width:'100%',height:'100%',transform:'none'};
+  if(widget.value?.typeId==='countdown') return {width:`${baseSize.value.width}px`,height:`${baseSize.value.height}px`,transform:`scale(${liveWidth.value/baseSize.value.width})`};
   const width=Math.min(liveWidth.value,baseSize.value.width);
   return {width:`${width}px`,height:`${width*baseSize.value.height/baseSize.value.width}px`,transform:`scale(${Math.max(1,liveWidth.value/baseSize.value.width)})`};
 });
@@ -292,6 +294,7 @@ onBeforeUnmount(() => {
       :lyric-line="media?.timelineAvailable === false ? undefined : currentLyric" :lyric-end-seconds="lyricEndSeconds" :lyric="media?.timelineAvailable === false ? '未提供播放时间，歌词同步不可用' : currentLyric?.text || (lyricsLoading ? '正在获取歌词…' : lyricsError ? lyricAttempts < 3 ? '正在重试歌词…' : '歌词暂时无法获取' : lyrics?.lines.length ? '等待歌词开始' : lyrics?.plainLyrics ? '暂无同步歌词' : lyricTrackKey ? '暂无匹配歌词' : '等待歌词')"
       @command="sendMediaCommand" />
 
+    <CountdownTile v-else-if="widget.typeId === 'countdown'" />
     <TodoTile v-else-if="widget.typeId === 'todo'" :items="widget.settings.items as TodoItem[]" :editing="editMode" @saved="items => { if(widget) widget.settings.items = items; }" />
     <section v-else class="weather" :class="{'weather--compact':compact}">
       <template v-if="selectedLocation">
@@ -324,11 +327,11 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
-.tile--todo{background:#BEDAE4!important;border-color:transparent!important;backdrop-filter:none!important}
+.tile--todo{background:#BEDAE4!important;border-color:transparent!important}
 .weather--compact{padding:6px 12px!important}.weather--compact .weather__temperature{font-size:34px}.weather__place.weather__configure{min-height:28px}.weather--compact .weather__condition{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.weather--compact .weather__stale{font-size:10px;margin-top:2px}
 .weather__configure{background:#ffffff10;border:1px solid #ffffff26;border-radius:8px;color:inherit;padding:8px;cursor:pointer;text-align:left}.weather__place.weather__configure{padding:0;background:none;border:none;width:100%;max-width:100%;overflow:auto;white-space:normal;overflow-wrap:anywhere;scrollbar-width:none;line-height:1.35;flex-shrink:0}
 *{box-sizing:border-box}body{font-family:"Segoe UI","Microsoft YaHei UI",sans-serif;color:#fafafa;color-scheme:dark}button,input{font:inherit}button:focus-visible,input:focus-visible{outline:2px solid #eee9ef;outline-offset:2px}
-.tile{position:relative;width:100%;height:100%;overflow:hidden;border:1px solid #ffffff40;border-radius:20px;background:rgba(8,10,14,.34);backdrop-filter:blur(16px) saturate(1.1);-webkit-app-region:no-drag;user-select:none}
+.tile{position:relative;width:100%;height:100%;overflow:hidden;border:1px solid #ffffff40;border-radius:20px;background:rgba(8,10,14,.34);-webkit-app-region:no-drag;user-select:none}
 .tile--editing{border-color:#eee9ef}.tile__content{position:absolute;left:0;top:0;transform-origin:top left}.tile__editor{position:absolute;inset:0;z-index:2;cursor:grab;touch-action:none;-webkit-app-region:no-drag;background:#ffffff03}.tile__editor--dragging{cursor:grabbing}.tile__corner{position:absolute;width:28px;height:28px}.tile__corner::after{content:"";position:absolute;width:8px;height:8px;border:2px solid #eee9ef;border-radius:2px;inset:10px}.tile__corner--nw{left:0;top:0;cursor:nwse-resize}.tile__corner--ne{right:0;top:0;cursor:nesw-resize}.tile__corner--sw{left:0;bottom:0;cursor:nesw-resize}.tile__corner--se{right:0;bottom:0;cursor:nwse-resize}
 .weather{padding:12px 19px;display:flex;height:100%;flex-direction:column;justify-content:center}.weather__place,.weather__prompt{margin:0 0 5px;color:#e6e2e6;font-size:12px}.weather__temperature{margin:0;font-size:44px;font-weight:350;line-height:1.1;letter-spacing:-.04em}.weather__condition,.weather__range{margin:5px 0 0;font-size:12px}.weather__range{color:#e6e2e6}.weather__stale,.weather small{margin:5px 0 0;color:#e6e2e6;font-size:10px}.weather__form{display:flex;gap:6px}.weather__form input{min-width:0;flex:1;border:1px solid #ffffff40;border-radius:8px;padding:7px;color:#fafafa;background:#ffffff10;user-select:text}.weather__form button,.weather__results button{border:0;border-radius:8px;padding:6px 9px;color:#fafafa;background:#ffffff14;cursor:pointer}.weather__results{max-height:86px;overflow:auto;margin:6px 0 0;padding:0;list-style:none}.weather__results button{width:100%;overflow:hidden;margin-top:3px;text-align:left;text-overflow:ellipsis;white-space:nowrap}.weather__loading{color:#e6e2e6;font-size:12px}
 .tile__message{position:absolute;left:12px;right:12px;bottom:0;overflow:hidden;color:#ffc6aa;font-size:10px;white-space:nowrap;text-overflow:ellipsis;background:#17161be8;pointer-events:none}.tile--error{display:grid;place-items:center;color:#e6e2e6;font-size:12px}.no-drag{-webkit-app-region:no-drag}

@@ -5,6 +5,7 @@ const catalog = require('../shared/widget-catalog.json');
 const { GRID_SIZE, sizeAtScale, validWidgetSize } = require('../shared/grid.cjs');
 const { validateTodoInput, validateTodoItems } = require('../shared/todo.cjs');
 
+const { validateSettings: validateCountdownSettings } = require('../shared/countdown.cjs');
 const schemaVersion = 2;
 const definitions = new Map(catalog.map((item) => [item.typeId, item]));
 
@@ -134,6 +135,7 @@ class WidgetStore {
       if (!Object.hasOwn(definition.defaultSettings, key)) throw new TypeError(`Unsupported widget setting: ${key}`);
       return [key, structuredClone(value)];
     });
+    if(widget.typeId==='countdown') validateCountdownSettings({...widget.settings,...Object.fromEntries(updates)});
     const previous=structuredClone(widget.settings);
     for (const [key, value] of updates) widget.settings[key] = value;
     try { this.#write(); } catch(error) {widget.settings=previous;throw error;}
@@ -214,6 +216,7 @@ class WidgetStore {
       if(!valid) Object.assign(widget,variant.size);
       if(!Number.isSafeInteger(widget.x) || !Number.isSafeInteger(widget.y)) throw new Error('Invalid persisted widget position');
       if(widget.typeId==='todo') validateTodoItems(widget.settings?.items);
+      if(widget.typeId==='countdown') validateCountdownSettings(widget.settings);
     }
     parsed.schemaVersion=schemaVersion;
     return parsed;

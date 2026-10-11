@@ -33,6 +33,8 @@ let lyricsService;
 let windowsHost;
 let tray;
 let quitting = false;
+const { Countdown } = require('./countdown.cjs');
+let countdown;
 let todoReminders;
 let reminderWindow;
 const powerListeners = [];
@@ -146,6 +148,15 @@ if (primaryInstance) app.whenReady().then(() => {
       reportTodoError(error);
     },
   });
+  countdown = new Countdown({
+    onDue: id => { widgetWindows.setEditMode(false);void widgetWindows.setCountdownReminder(id,true).catch(reportTodoError); },
+    onChange: (id, finished) => {
+      if (finished) { try { store.updateSettings(id, {seconds: 0}); } catch (error) { reportTodoError(error); } }
+      widgetWindows.windows.get(id)?.webContents.send('widget:settings');
+    }, onError: reportTodoError,
+  });
+  countdown.open();
+  widgetWindows.isCountdownFinished = id => countdown.get(id).status === 'finished';
   todoReminders = new TodoReminders({
     store, onDue: items => {
       try { reminderWindow.show(items); }
@@ -154,11 +165,11 @@ if (primaryInstance) app.whenReady().then(() => {
     onChange: id => widgetWindows.windows.get(id)?.webContents.send('widget:settings'),
   });
   for (const [event, reason, blocked] of [['suspend','sleep',true],['resume','sleep',false],['lock-screen','lock',true],['unlock-screen','lock',false]]) {
-    const listener = () => { if(blocked) reminderWindow.dismiss();todoReminders.setBlocked(reason,blocked); };
+    const listener = () => { if(blocked) reminderWindow.dismiss();todoReminders.setBlocked(reason,blocked);countdown.setBlocked(reason,blocked); };
     powerMonitor.on(event,listener);
     powerListeners.push([event,listener]);
   }
-  if(powerMonitor.getSystemIdleState(1)==='locked') todoReminders.setBlocked('lock',true);
+  if(powerMonitor.getSystemIdleState(1)==='locked') { todoReminders.setBlocked('lock',true);countdown.setBlocked('lock',true); }
   todoReminders.start();
   registerHandlers({
     getAppInfo: () => ({ version: app.getVersion() }),
@@ -175,7 +186,7 @@ if (primaryInstance) app.whenReady().then(() => {
     },
     lyricsService,
     widgetWindows,
-    todoReminders,
+    todoReminders, countdown,
     reminderWindow,
     getControlWindow: () => controlWindow,
     getInitialOrigin: () => {
@@ -204,6 +215,7 @@ app.on('before-quit', () => {
   quitting = true;
   globalShortcut.unregister('Escape');
   unregisterWidgetHandlers();
+  countdown?.close();
   todoReminders?.close();
   reminderWindow?.close();
   for(const [event,listener] of powerListeners) powerMonitor.removeListener(event,listener);

@@ -35,6 +35,16 @@ function fixture(t) {
   return {controller,screen,item,errors,opened:()=>opened,removeMonitor:()=>{displays=displays.slice(0,1);screen.emit('display-removed');}};
 }
 
+test('countdown and todo share one overlay; todo sync cannot erase countdown events', t => {
+  const f=fixture(t);
+  const countdown={...f.item('countdown:1'),source:'countdown',text:'泡面倒计时结束'};
+  f.controller.show([countdown]);f.controller.show([f.item('todo:1')]);
+  assert.equal(FakeWindow.instances.length,1);assert.equal(f.controller.items.length,2);
+  f.controller.sync([]);assert.deepEqual(f.controller.items,[countdown]);
+  f.controller.show([f.item('todo:2')]);assert.equal(f.controller.items.length,2);
+  f.controller.dismiss();assert.equal(f.controller.items.length,0);
+});
+
 test('reminder uses full pointer-display bounds rather than work area, accepts Escape, and recreates after dismissal', t => {
   const f=fixture(t);f.controller.show([f.item('1'),f.item('2')]);
   const window=FakeWindow.instances[0];

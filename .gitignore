@@ -1,5 +1,6 @@
 node_modules/
 dist/
 .tmp/
+.playwright-cli/
 coverage/
 *.log

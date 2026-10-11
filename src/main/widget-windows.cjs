@@ -1,6 +1,6 @@
 const { GRID_SIZE, fitBoundsToGrid, resizeFromCorner } = require('../shared/grid.cjs');
 const catalog = require('../shared/widget-catalog.json');
-const { supportsNativeAcrylic, getWindowHandle, installLegacyGlass } = require('./window-glass.cjs');
+const { getWindowHandle } = require('./window-glass.cjs');
 
 class WidgetWindows {
   constructor({ BrowserWindow, screen, store, getWindowsHost, preloadPath, rendererPath, devUrl }) {
@@ -13,6 +13,7 @@ class WidgetWindows {
     this.devUrl = devUrl;
     this.windows = new Map();
     this.readyWindows = new Set();
+    this.reminderWindows = new Set();
     this.gesture = null;
     this.gestureSequence = 0;
     this.pauseTimer = null;
@@ -39,7 +40,7 @@ class WidgetWindows {
     }
   }
 
-  show(widget) {
+  show(widget, reminder = this.isCountdownFinished?.(widget.id) ?? false) {
     if (!this.store.isVisible(widget)) return;
     const current = this.windows.get(widget.id);
     if (current && !current.isDestroyed()) {
@@ -57,16 +58,17 @@ class WidgetWindows {
       y: widget.y,
       frame: false,
       thickFrame: false,
-      transparent: widget.typeId === 'todo' || !supportsNativeAcrylic,
+      transparent: true,
       roundedCorners: true,
-      backgroundMaterial: widget.typeId !== 'todo' && supportsNativeAcrylic ? 'acrylic' : 'none',
+      alwaysOnTop: reminder,
+      backgroundMaterial: 'none',
       backgroundColor: '#00000000',
       resizable: false,
       movable: false,
       minimizable: false,
       maximizable: false,
       skipTaskbar: true,
-      focusable: widget.typeId === 'todo',
+      focusable: ['todo','countdown'].includes(widget.typeId),
       show: false,
       webPreferences: {
         preload: this.preloadPath,
@@ -75,20 +77,24 @@ class WidgetWindows {
         sandbox: true,
       },
     });
-    // Win10 accent blur ignores rounded clipping; weather's transparent corners take precedence.
-    installLegacyGlass(window, this.getWindowsHost, widget.typeId === 'music');
-    window.setAlwaysOnTop(false);
+    window.setAlwaysOnTop(reminder, 'floating');
+    if(reminder) this.reminderWindows.add(window);
     window.on('show', () => this.#lowerWindow(window));
     window.on('minimize', () => { window.restore(); this.#lowerWindow(window); });
     this.windows.set(widget.id, window);
     // Only the typed edit gesture changes geometry; native titlebar dragging stays disabled.
-    window.on('will-move', (event) => event.preventDefault());
+    // Electron's will-move interception also blocks HWND Z-order changes; countdown uses movable:false.
+    if(widget.typeId!=='countdown') window.on('will-move', (event) => event.preventDefault());
     // Hidden transparent windows may not paint; initialize from load instead of waiting for ready-to-show.
     window.webContents.once('did-finish-load', async () => {
       window.setBounds({ x:widget.x,y:widget.y,width:widget.width,height:widget.height }, false);
       try {
-        const result=await this.getWindowsHost().request('system.desktop-widget',{handle:getWindowHandle(window),focusable:widget.typeId==='todo'});
-        if(!result.installed) throw new Error('Windows 没有启用桌面磁贴层级');
+        if(reminder) {
+          if(!window.isAlwaysOnTop()) throw new Error('倒计时窗口未能置顶');
+        } else {
+          const result=await this.getWindowsHost().request('system.desktop-widget',{handle:getWindowHandle(window),focusable:['todo','countdown'].includes(widget.typeId)});
+          if(!result.installed) throw new Error('Windows 没有启用桌面磁贴层级');
+        }
         if(window.isDestroyed()) return;
         this.readyWindows.add(window);
         window.showInactive();
@@ -115,6 +121,7 @@ class WidgetWindows {
       if(this.gesture?.id===widget.id) this.cancelGesture();
       this.windows.delete(widget.id);
       this.readyWindows.delete(window);
+      this.reminderWindows.delete(window);
       if (this.windows.size === 0) this.#stopPauseMonitor();
     });
 
@@ -125,11 +132,20 @@ class WidgetWindows {
   }
 
   #lowerWindow(window) {
-    if (window.isDestroyed()) return;
+    if (window.isDestroyed() || this.reminderWindows.has(window)) return;
     // The hidden Windows worker adjusts only this known widget HWND; renderers cannot choose handles.
     void this.getWindowsHost().request('system.lower-widget', { handle: getWindowHandle(window) }).catch(error => {
       if (!window.isDestroyed()) console.error('Failed to lower desktop widget:', error);
     });
+  }
+
+  async setCountdownReminder(id, active) {
+    const widget=this.store.list().find(item=>item.id===id);
+    if(!widget || !widget.enabled) return;
+    if(widget.typeId!=='countdown') throw new Error('此操作仅限倒计时窗口');
+    // Recreate at identical bounds: reusing an Explorer-owned HWND gives unreliable TOPMOST transitions.
+    this.remove(id);
+    this.show(widget,active);
   }
 
   setEditMode(enabled) {
@@ -189,6 +205,7 @@ class WidgetWindows {
     if(this.gesture?.id===id) this.cancelGesture();
     this.windows.delete(id);
     this.readyWindows.delete(window);
+    this.reminderWindows.delete(window);
     if (!window.isDestroyed()) window.destroy();
     if (this.windows.size === 0) this.#stopPauseMonitor();
   }
@@ -201,6 +218,7 @@ class WidgetWindows {
     }
     this.windows.clear();
     this.readyWindows.clear();
+    this.reminderWindows.clear();
   }
 
   #base(widget) {

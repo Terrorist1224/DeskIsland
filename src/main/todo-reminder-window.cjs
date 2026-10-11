@@ -38,7 +38,7 @@ class TodoReminderWindow {
     const window = new this.BrowserWindow({
       ...display.bounds, frame: false, thickFrame: false, show: false, backgroundColor: '#00000000', transparent: true,
       resizable: false, movable: false, minimizable: false, maximizable: false,
-      skipTaskbar: true, title: '桌屿 · 待办提醒',
+      skipTaskbar: true, title: '桌屿 · 到期提醒',
       webPreferences: { preload: this.preloadPath, contextIsolation: true, nodeIntegration: false, sandbox: true },
     });
     this.window = window;
@@ -75,7 +75,7 @@ class TodoReminderWindow {
   sync(items) {
     if (this.isPreview) return;
     const ids = new Set(items.map(item => item.id));
-    this.items = this.items.filter(item => ids.has(item.id));
+    this.items = this.items.filter(item => item.source === 'countdown' || ids.has(item.id));
     if (!this.items.length) this.dismiss();
     else this.window?.webContents.send('todo-reminder:items', this.items);
   }

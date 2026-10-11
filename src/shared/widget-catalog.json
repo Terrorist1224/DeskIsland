@@ -26,5 +26,14 @@
       { "id": "standard", "title": "待办列表", "size": { "width": 240, "height": 240, "minimumWidth": 160, "minimumHeight": 160, "maximumWidth": 480, "maximumHeight": 480, "freeResize": true } }
     ],
     "defaultSettings": { "items": [] }
+  },
+  {
+    "typeId": "countdown",
+    "title": "倒计时",
+    "defaultSize": { "width": 240, "height": 240 },
+    "variants": [
+      { "id": "standard", "title": "倒计时", "size": { "width": 240, "height": 240, "minimumWidth": 160 } }
+    ],
+    "defaultSettings": { "seconds": 0, "presets": [] }
   }
 ]

@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('deskIsland', {
+  countdown: (action, input) => ipcRenderer.invoke('countdown:action', action, input),
   addTodo: input => ipcRenderer.invoke('todo:add', input),
   completeTodo: id => ipcRenderer.invoke('todo:complete', id),
   moveTodo: (id, beforeId) => ipcRenderer.invoke('todo:move', id, beforeId),

@@ -107,7 +107,7 @@ function formatTime(ticks: number) {
 </template>
 
 <style>
-.music-face{height:100%;position:relative;isolation:isolate;overflow:hidden;padding:14px;user-select:none;color:#fafafa;background:linear-gradient(90deg,#080a0e32,transparent);display:flex;flex-direction:column}
+.music-face{height:100%;position:relative;isolation:isolate;overflow:hidden;padding:14px;user-select:none;color:#fafafa;display:flex;flex-direction:column}
 .music-platform{flex:none;height:20px;line-height:20px;margin-bottom:6px;color:#e6e2e6;font-size:12px;white-space:nowrap;overflow:hidden;display:flex;align-items:center;gap:6px}.music-platform img,.music-platform svg{width:20px;height:20px;object-fit:contain;flex:none}.music-platform span{font-size:11px}
 .music-layout{flex:1;min-height:0;display:grid;grid-template-columns:100px minmax(0,1fr);grid-template-rows:100px minmax(0,1fr) 32px;gap:8px 12px}
 .music-cover{min-height:0;overflow:hidden;border-radius:9px;aspect-ratio:1}.music-cover img,.music-cover__placeholder{width:100%;height:100%;object-fit:cover}.music-cover__placeholder{display:grid;place-items:center;background:#ffffff14;color:#e6e2e6;font-size:11px}
