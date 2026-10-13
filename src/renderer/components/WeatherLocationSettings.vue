@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import type { WeatherLocation, WeatherRegion } from '../../shared/contracts';
 
-const props = defineProps<{ location: WeatherLocation | null; disabled: boolean; saving: boolean }>();
-const emit = defineEmits<{ save: [code: string] }>();
+const props = defineProps<{ location: WeatherLocation | null; draftCodes?: string[]; disabled: boolean; saving: boolean }>();
+const emit = defineEmits<{ save: [code: string]; change: [codes: string[]] }>();
 const bridge = window.deskIsland;
 const options = ref<WeatherRegion[][]>([[], [], []]);
 const codes = ref<string[]>(['', '', '']);
+watch(codes,()=>emit('change',[...codes.value]),{deep:true,flush:'sync'});
 const busy = ref(false);
 const error = ref('');
 const labels = ['省 / 直辖市', '城市', '区 / 县'];
@@ -49,10 +50,11 @@ function save() {
 }
 
 onMounted(() => {
+  const savedCodes=props.draftCodes??props.location?.regionCodes??[];
   void run(async () => {
     options.value[0] = await bridge.listWeatherRegions();
-    for (let level = 0; level < Math.min(3, props.location?.regionCodes?.length ?? 0); level++) {
-      const code = props.location!.regionCodes![level];
+    for (let level = 0; level < Math.min(3, savedCodes.length); level++) {
+      const code = savedCodes[level];
       if (!options.value[level]?.some(item => item.code === code)) break;
       codes.value[level] = code;
       await loadChildren(level);

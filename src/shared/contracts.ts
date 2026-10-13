@@ -1,4 +1,8 @@
 export type WidgetType = 'music' | 'weather' | 'todo' | 'countdown' | 'audio' | 'desktop-search';
+export interface ControlState {
+  selectedType: WidgetType; settingsPage: boolean; focusedWeatherId: string;
+  apiHost: string; apiKey: string; weatherCodes: Record<string,string[]>;
+}
 export interface DesktopSearchItem { id: string; name: string; kind: 'file' | 'folder' | 'shortcut'; path: string }
 export interface AudioDevice { id: string; name: string }
 export interface AudioSnapshot {
@@ -43,6 +47,8 @@ export type MediaCommand = 'toggle' | 'next' | 'previous' | 'seek';
 
 export interface MediaSnapshot {
   available: boolean;
+  // Matching keys omit track metadata and artwork; the renderer retains its previous values.
+  metadataKey?: string;
   timelineAvailable?: boolean;
   sourceId?: string;
   title?: string;
@@ -118,6 +124,7 @@ export interface DesktopIslandBridge {
   retrySaveAudioRecording(): Promise<AudioSnapshot>;
   openAudioRecordingFolder(): Promise<void>;
   onAudioChanged(callback: (state: AudioSnapshot)=>void): ()=>void;
+  onAudioRecordingChanged(callback: (recording: Pick<AudioSnapshot['recording'],'status'|'message'>)=>void): ()=>void;
   countdown(action: 'get' | 'select' | 'add' | 'delete' | 'start' | 'pause' | 'resume' | 'cancel' | 'acknowledge', input?: { seconds?: number; name?: string; id?: string }): Promise<{ state: CountdownState; seconds: number; presets: CountdownPreset[] }>;
   addTodo(input: TodoInput): Promise<TodoItem[]>;
   completeTodo(id: string): Promise<TodoItem[]>;
@@ -147,11 +154,13 @@ export interface DesktopIslandBridge {
   getEditMode(): Promise<boolean>;
   onEditModeChange(callback: (enabled: boolean) => void): () => void;
   minimizeControlWindow(): Promise<void>;
-  hideControlWindow(): Promise<void>;
+  getControlState(): Promise<ControlState|null>;
+  hideControlWindow(state: ControlState): Promise<void>;
+  onControlClosing(callback: ()=>void): ()=>void;
   removeWidget(id: string): Promise<void>;
   showWidget(id: string): Promise<boolean>;
   updateWidgetSettings(id: string, patch: Record<string, unknown>): Promise<boolean>;
-  getMediaSnapshot(): Promise<MediaSnapshot>;
+  getMediaSnapshot(knownMetadataKey?: string): Promise<MediaSnapshot>;
   getLyrics(track: { title: string; artist: string; album?: string; durationSeconds?: number; sourceId?: string }): Promise<LyricsSnapshot | { error: string } | null>;
   sendMediaCommand(command: MediaCommand, sourceId: string, positionTicks?: number): Promise<{ accepted: boolean; reason?: string }>;
   searchWeatherLocations(query: string): Promise<WeatherLocation[]>;

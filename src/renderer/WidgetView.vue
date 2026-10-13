@@ -140,8 +140,9 @@ async function refreshMedia() {
   mediaRefreshing = true;
   const version = mediaVersion;
   try {
-    const snapshot = await window.deskIsland.getMediaSnapshot();
+    const update = await window.deskIsland.getMediaSnapshot(media.value?.metadataKey);
     if (version !== mediaVersion || disposed) return;
+    const snapshot = update.metadataKey && update.metadataKey===media.value?.metadataKey ? {...media.value,...update} : update;
     if (expectedPlayback) {
       if (snapshot.sourceId !== expectedPlayback.sourceId || snapshot.playbackStatus === expectedPlayback.status || Date.now() >= expectedPlayback.until) expectedPlayback = null;
       else snapshot.playbackStatus = expectedPlayback.status;

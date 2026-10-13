@@ -24,7 +24,7 @@ try {
         'audio.stop' { $audio.Stop() }
         default { throw 'Unsupported audio method.' }
       }
-      if ($null -eq $result) { $result = $audio.Snapshot() }
+      if ($null -eq $result) { $result = $audio.Snapshot($message.method -eq 'audio.device') }
       @{id=$message.id;ok=$true;result=$result} | ConvertTo-Json -Depth 12 -Compress | Write-Output
     } catch {
       @{id=$message.id;ok=$false;error=$_.Exception.Message} | ConvertTo-Json -Compress | Write-Output

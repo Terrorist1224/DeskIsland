@@ -22,6 +22,10 @@ contextBridge.exposeInMainWorld('deskIsland', {
     const listener=(_event,state)=>callback(state);ipcRenderer.on('audio:changed',listener);
     return ()=>ipcRenderer.removeListener('audio:changed',listener);
   },
+  onAudioRecordingChanged: callback => {
+    const listener=(_event,recording)=>callback(recording);ipcRenderer.on('audio:recording-changed',listener);
+    return ()=>ipcRenderer.removeListener('audio:recording-changed',listener);
+  },
   countdown: (action, input) => ipcRenderer.invoke('countdown:action', action, input),
   addTodo: input => ipcRenderer.invoke('todo:add', input),
   completeTodo: id => ipcRenderer.invoke('todo:complete', id),
@@ -67,7 +71,12 @@ contextBridge.exposeInMainWorld('deskIsland', {
   getEditMode: () => ipcRenderer.invoke('desktop:get-edit-mode'),
   setEditMode: (enabled) => ipcRenderer.invoke('desktop:set-edit-mode', enabled),
   minimizeControlWindow: () => ipcRenderer.invoke('control:minimize'),
-  hideControlWindow: () => ipcRenderer.invoke('control:hide'),
+  getControlState: () => ipcRenderer.invoke('control:get-state'),
+  hideControlWindow: state => ipcRenderer.invoke('control:hide',state),
+  onControlClosing: callback => {
+    const listener=()=>callback();ipcRenderer.on('control:closing',listener);
+    return ()=>ipcRenderer.removeListener('control:closing',listener);
+  },
   onEditModeChange: (callback) => {
     const listener = (_event, enabled) => callback(enabled);
     ipcRenderer.on('desktop:edit-mode', listener);
@@ -76,7 +85,7 @@ contextBridge.exposeInMainWorld('deskIsland', {
   removeWidget: (id) => ipcRenderer.invoke('widgets:remove', id),
   showWidget: (id) => ipcRenderer.invoke('widgets:show', id),
   updateWidgetSettings: (id, patch) => ipcRenderer.invoke('widgets:update-settings', id, patch),
-  getMediaSnapshot: () => ipcRenderer.invoke('media:snapshot'),
+  getMediaSnapshot: knownMetadataKey => ipcRenderer.invoke('media:snapshot',knownMetadataKey),
   getLyrics: (track) => ipcRenderer.invoke('lyrics:get', track),
   sendMediaCommand: (command, sourceId, positionTicks) => ipcRenderer.invoke('media:command', command, sourceId, positionTicks),
   searchWeatherLocations: (query) => ipcRenderer.invoke('weather:search', query),

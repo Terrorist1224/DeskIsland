@@ -42,7 +42,27 @@ let countdown;
 let todoReminders;
 let reminderWindow;
 let desktopSearch;
+let lastAudioRecording;
+// Unsaved credentials and page drafts stay in memory for this app session only.
+let controlState=null;
 const powerListeners = [];
+
+function sendAudioRecording(recording, force=false) {
+  if(!controlWindow||controlWindow.isDestroyed()||!controlWindow.isVisible()) return;
+  const value={status:recording.status,message:recording.message};
+  if(!force&&lastAudioRecording?.status===value.status&&lastAudioRecording?.message===value.message) return;
+  controlWindow.webContents.send('audio:recording-changed',value);
+  lastAudioRecording=value;
+}
+
+function broadcastAudioState(state) {
+  for(const widget of store.list('audio')) {
+    if(!widget.enabled) continue;
+    const window=widgetWindows?.windows.get(widget.id);
+    if(window&&!window.isDestroyed()) window.webContents.send('audio:changed',state);
+  }
+  sendAudioRecording(state.recording);
+}
 
 function getWindowsHost() {
   if (!windowsHost) windowsHost = new WindowsHostClient();
@@ -50,6 +70,7 @@ function getWindowsHost() {
 }
 
 function createControlWindow(show = true) {
+  if(!show) return;
   if (controlWindow && !controlWindow.isDestroyed()) {
     if (controlWindow.isMinimized()) controlWindow.restore();
     if (show) { controlWindow.show(); controlWindow.focus(); }
@@ -81,10 +102,11 @@ function createControlWindow(show = true) {
   controlWindow.on('close', (event) => {
     if (quitting) return;
     event.preventDefault();
-    widgetWindows?.setEditMode(false);
-    controlWindow.hide();
+    if(controlWindow.webContents.isLoadingMainFrame()) controlWindow.destroy();
+    else controlWindow.webContents.send('control:closing');
   });
   controlWindow.on('hide', () => widgetWindows?.setEditMode(false));
+  controlWindow.on('show', () => { if(audioService) sendAudioRecording(audioService.snapshot.recording,true); });
   controlWindow.on('minimize', () => widgetWindows?.setEditMode(false));
   controlWindow.webContents.on('before-input-event', (_event, input) => {
     if (input.key === 'Escape') widgetWindows?.setEditMode(false);
@@ -117,9 +139,7 @@ if (primaryInstance) app.whenReady().then(() => {
       const result=controlWindow?.isVisible()?await dialog.showSaveDialog(controlWindow,options):await dialog.showSaveDialog(options);
       return result.canceled?null:result.filePath;
     },
-    onChange:state=>{
-      for(const window of [controlWindow,...(widgetWindows?.windows.values()??[])]) if(window&&!window.isDestroyed()) window.webContents.send('audio:changed',state);
-    },
+    onChange:broadcastAudioState,
   });
   widgetWindows = new WidgetWindows({
     BrowserWindow,
@@ -214,6 +234,9 @@ if (primaryInstance) app.whenReady().then(() => {
     todoReminders, countdown,
     reminderWindow,
     getControlWindow: () => controlWindow,
+    getControlState:()=>controlState,
+    closeControlWindow:state=>{controlState=state;widgetWindows.setEditMode(false);controlWindow.destroy();},
+    openControlWindow:()=>{createControlWindow();return controlWindow;},
     getInitialOrigin: () => {
       const display = screen.getPrimaryDisplay();
       const { x, y, width } = display.workArea;
@@ -237,6 +260,8 @@ if (primaryInstance) app.whenReady().then(() => {
 });
 
 app.on('activate', () => createControlWindow());
+// The tray keeps the app running even when every renderer window has been released.
+app.on('window-all-closed',()=>{});
 app.on('before-quit', event => {
   if(audioService&&!audioService.closed) {
     event.preventDefault();

@@ -111,6 +111,10 @@ public sealed class DeskIslandAudio : IDisposable {
   private readonly object meterGate=new object();
   private readonly float[] levels=new float[20];
   private int meterPosition;
+  private object[] inputs,outputs;
+  private IDictionary inputDefaults,outputDefaults;
+  private string defaultInputId,defaultOutputId;
+  private readonly Stopwatch deviceListClock=Stopwatch.StartNew();
   public bool Recording {get;private set;}
   public string Failure {get{return failure;}}
   public double ElapsedMs {get{return Recording?clock.Elapsed.TotalMilliseconds:elapsedMs;}}
@@ -118,15 +122,21 @@ public sealed class DeskIslandAudio : IDisposable {
   private static IDictionary DefaultIds(MMDeviceEnumerator devices,DataFlow flow) {
     var result=new Hashtable();foreach(Role role in new[]{Role.Console,Role.Multimedia,Role.Communications}) using(var device=Default(devices,flow,role)) result[role.ToString()]=device==null?null:device.ID;return result;
   }
-  public IDictionary Snapshot() {
+  public IDictionary Snapshot(bool refreshDevices=false) {
     using(var devices=new MMDeviceEnumerator()) {
-      var inputs=new List<object>();var outputs=new List<object>();
-      foreach(DataFlow flow in new[]{DataFlow.Capture,DataFlow.Render}) foreach(var device in devices.EnumerateAudioEndPoints(flow,DeviceState.Active)) {
-        using(device) (flow==DataFlow.Capture?inputs:outputs).Add(new Hashtable{{"id",device.ID},{"name",device.FriendlyName}});
-      }
       using(var input=Default(devices,DataFlow.Capture,Role.Communications)) using(var output=Default(devices,DataFlow.Render,Role.Multimedia)) {
         string currentInput=input==null?null:input.ID,currentOutput=output==null?null:output.ID;
-        return new Hashtable{{"inputs",inputs.ToArray()},{"outputs",outputs.ToArray()},{"inputId",currentInput},{"outputId",currentOutput},{"inputDefaults",DefaultIds(devices,DataFlow.Capture)},{"outputDefaults",DefaultIds(devices,DataFlow.Render)},{"volume",output==null?(object)null:(int)Math.Round(output.AudioEndpointVolume.MasterVolumeLevelScalar*100)},{"elapsedMs",ElapsedMs},{"recording",Recording},{"failure",failure},{"devicesChanged",Recording&&(currentInput!=inputId||currentOutput!=outputId)}};
+        // shortcut: non-default device lists use a 5s cache; use notifications if instant updates are needed.
+        if(refreshDevices||inputs==null||deviceListClock.ElapsedMilliseconds>=5000||currentInput!=defaultInputId||currentOutput!=defaultOutputId) {
+          var nextInputs=new List<object>();var nextOutputs=new List<object>();
+          foreach(DataFlow flow in new[]{DataFlow.Capture,DataFlow.Render}) foreach(var device in devices.EnumerateAudioEndPoints(flow,DeviceState.Active)) {
+            using(device) (flow==DataFlow.Capture?nextInputs:nextOutputs).Add(new Hashtable{{"id",device.ID},{"name",device.FriendlyName}});
+          }
+          var nextInputDefaults=DefaultIds(devices,DataFlow.Capture);var nextOutputDefaults=DefaultIds(devices,DataFlow.Render);
+          inputs=nextInputs.ToArray();outputs=nextOutputs.ToArray();inputDefaults=nextInputDefaults;outputDefaults=nextOutputDefaults;
+          defaultInputId=currentInput;defaultOutputId=currentOutput;deviceListClock.Restart();
+        }
+        return new Hashtable{{"inputs",inputs},{"outputs",outputs},{"inputId",currentInput},{"outputId",currentOutput},{"inputDefaults",inputDefaults},{"outputDefaults",outputDefaults},{"volume",output==null?(object)null:(int)Math.Round(output.AudioEndpointVolume.MasterVolumeLevelScalar*100)},{"elapsedMs",ElapsedMs},{"recording",Recording},{"failure",failure},{"devicesChanged",Recording&&(currentInput!=inputId||currentOutput!=outputId)}};
       }
     }
   }

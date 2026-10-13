@@ -136,6 +136,7 @@ $script:manager = $null
 $script:artworkKey = ''
 $script:artworkDataUrl = $null
 $script:artworkRetryAt = [DateTimeOffset]::MinValue
+$script:metadataRevision = 0
 
 function Wait-WinRtOperation {
   param(
@@ -176,6 +177,7 @@ function Get-MediaSession {
 }
 
 function Get-MediaSnapshot {
+  param([string]$KnownMetadataKey = '')
   $session = Get-MediaSession
   if (-not $session) { $script:mediaTiming = $null; return @{ available = $false } }
 
@@ -185,6 +187,7 @@ function Get-MediaSnapshot {
   $artworkKey = @($session.SourceAppUserModelId, $properties.Title, $properties.Artist, $properties.AlbumTitle) | ConvertTo-Json -Compress
   $timing = Get-MediaTiming -Timeline $timeline -Playback $playback -SourceId $session.SourceAppUserModelId -TrackKey $artworkKey
   if ($artworkKey -ne $script:artworkKey) {
+    $script:metadataRevision++
     $script:artworkKey = $artworkKey
     $script:artworkDataUrl = $null
     $script:artworkRetryAt = [DateTimeOffset]::MinValue
@@ -193,20 +196,20 @@ function Get-MediaSnapshot {
     $script:artworkRetryAt = [DateTimeOffset]::UtcNow.AddSeconds(5)
     try {
       $stream = Wait-WinRtOperation -Operation $properties.Thumbnail.OpenReadAsync() -ResultType $script:streamType
-      $script:artworkDataUrl = Read-MediaArtwork -Stream $stream
+      $artwork = Read-MediaArtwork -Stream $stream
+      if ($artwork -ne $script:artworkDataUrl) { $script:metadataRevision++ }
+      $script:artworkDataUrl = $artwork
     }
     catch {
       # Artwork is optional; a broken or oversized thumbnail must not hide player controls.
       $script:artworkDataUrl = $null
     }
   }
-  return @{
+  # A restarted worker must invalidate keys retained by an existing renderer.
+  $snapshot = @{
     available = $true
+    metadataKey = "$PID/$script:metadataRevision"
     sourceId = $session.SourceAppUserModelId
-    title = $properties.Title
-    artist = $properties.Artist
-    album = $properties.AlbumTitle
-    thumbnailDataUrl = $script:artworkDataUrl
     playbackStatus = $timing.playbackStatus
     positionTicks = $timing.positionTicks
     durationTicks = $timeline.EndTime.Ticks
@@ -216,6 +219,13 @@ function Get-MediaSnapshot {
     canPrevious = $playback.Controls.IsPreviousEnabled
     canSeek = $playback.Controls.IsPlaybackPositionEnabled
   }
+  if ($KnownMetadataKey -ne $snapshot.metadataKey) {
+    $snapshot.title = $properties.Title
+    $snapshot.artist = $properties.Artist
+    $snapshot.album = $properties.AlbumTitle
+    $snapshot.thumbnailDataUrl = $script:artworkDataUrl
+  }
+  return $snapshot
 }
 
 function Read-MediaArtwork {
@@ -342,7 +352,7 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
         $result = @{ dataUrl = [DeskIslandShellIcon]::Read([string]$message.path, [int]$message.size) }
       }
       'desktop.list' { $result = Get-DesktopItems }
-      'media.snapshot' { $result = Get-MediaSnapshot }
+      'media.snapshot' { $result = Get-MediaSnapshot -KnownMetadataKey $message.knownMetadataKey }
       'media.command' { $result = Invoke-MediaCommand -Message $message }
       'system.pause-state' { $result = @{ shouldPause = [DeskIslandWindowState]::ShouldPauseWidgets() } }
       'system.lower-widget' { $result = @{ desktopLevel = [DeskIslandWindowState]::LowerWidget([string]$message.handle) } }

@@ -10,17 +10,18 @@ class TodoReminders {
   }
 
   start() {
+    this.started=true;
     this.reconcile();
-    this.timer = setInterval(() => this.tick(), 250);
   }
 
   // Reopening/startup never delivers a past reminder, even between timer ticks.
   reconcile(widgetId) {
     const now = this.now();
-    for (const widget of this.store.list().filter(item => item.typeId === 'todo' && (!widgetId || item.id === widgetId))) {
+    for (const widget of this.store.list('todo').filter(item => !widgetId || item.id === widgetId)) {
       const states = new Map(widget.settings.items.filter(item => item.reminderState === 'pending' && item.remindAt <= now).map(item => [item.id, 'missed']));
       if (states.size) this.#save(widget.id, states);
     }
+    this.syncTimer();
   }
 
   setBlocked(reason, blocked) {
@@ -30,6 +31,7 @@ class TodoReminders {
     if (!blocked) this.blockers.delete(reason);
     this.lastWall = this.now();
     this.lastMono = this.monotonic();
+    this.syncTimer();
   }
 
   tick() {
@@ -40,7 +42,7 @@ class TodoReminders {
     const from = this.lastWall;
     this.lastWall = now;
     this.lastMono = mono;
-    for (const widget of this.store.list().filter(item => item.typeId === 'todo')) {
+    for (const widget of this.store.list('todo')) {
       const due = widget.settings.items.filter(item => item.reminderState === 'pending' && item.remindAt <= now);
       if (!due.length) continue;
       const notified = due.filter(item => widget.enabled && !this.blockers.size && continuous && item.remindAt > from);
@@ -54,6 +56,15 @@ class TodoReminders {
         }
       }
     }
+    this.syncTimer();
+  }
+
+  syncTimer() {
+    const active=this.started&&!this.blockers.size&&this.store.list('todo').some(widget=>widget.enabled&&widget.settings.items.some(item=>item.reminderState==='pending'));
+    if(active&&!this.timer) {
+      this.lastWall=this.now();this.lastMono=this.monotonic();
+      this.timer=setInterval(()=>this.tick(),250);
+    } else if(!active) {clearInterval(this.timer);this.timer=undefined;}
   }
 
   #save(id, states) {
@@ -63,7 +74,7 @@ class TodoReminders {
     return true;
   }
 
-  close() { clearInterval(this.timer);this.timer = undefined; }
+  close() { this.started=false;clearInterval(this.timer);this.timer = undefined; }
 }
 
 module.exports = { TodoReminders };

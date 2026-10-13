@@ -2,7 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { execFile } = require('node:child_process');
-const { promisify } = require('node:util');
+const { promisify, isDeepStrictEqual } = require('node:util');
 const { WindowsHostClient } = require('../windows-host-client.cjs');
 const execute = promisify(execFile);
 
@@ -33,7 +33,7 @@ class AudioService {
     this.enabled=false;this.host=null;this.pending=null;this.operation=null;this.refreshing=false;this.closed=false;this.controlVersion=0;this.meterReading=false;
   }
   get snapshot(){return structuredClone(this.state);}
-  emit(){this.onChange(this.snapshot);}
+  emit(){const state=this.snapshot;if(isDeepStrictEqual(state,this.lastEmitted)) return;this.lastEmitted=state;this.onChange(state);}
   getHost(){if(!this.host) this.host=this.createHost();return this.host;}
   watch(){if(!this.timer) {this.timer=setInterval(()=>void this.refresh(),1000);this.timer.unref?.();}}
   watchMeter(){if(!this.meterTimer) {this.meterTimer=setInterval(()=>void this.readMeter(),50);this.meterTimer.unref?.();}}

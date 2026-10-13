@@ -37,4 +37,19 @@ foreach($role in @('Console','Multimedia','Communications')){$previous[[NAudio.C
 $calls=[Collections.Generic.List[string]]::new()
 $apply=[Action[string,NAudio.CoreAudioApi.Role]]{param($id,$role);$calls.Add($id);if($id-eq 'new' -and $role-eq [NAudio.CoreAudioApi.Role]::Multimedia){throw 'failure'}}
 try{[DeskIslandAudio]::SetRoles('new',$previous,$apply);throw 'expected switch error'}catch{Check ($calls.Contains('old-Console') -and $calls.Contains('old-Multimedia') -and $calls.Contains('old-Communications')) 'restore every original role'}
+$audio=[DeskIslandAudio]::new()
+try {
+  $first=$audio.Snapshot()
+  $cached=$audio.Snapshot()
+  Check ([object]::ReferenceEquals($first.inputs,$cached.inputs) -and [object]::ReferenceEquals($first.outputs,$cached.outputs)) 'ordinary polling must reuse device lists'
+  $forced=$audio.Snapshot($true)
+  Check (-not [object]::ReferenceEquals($cached.inputs,$forced.inputs)) 'explicit device switches must refresh lists'
+  $flags=[Reflection.BindingFlags]'NonPublic,Instance'
+  [DeskIslandAudio].GetField('defaultInputId',$flags).SetValue($audio,'test-stale-default')
+  $changed=$audio.Snapshot()
+  Check (-not [object]::ReferenceEquals($forced.inputs,$changed.inputs)) 'default changes must invalidate cached lists'
+  Start-Sleep -Milliseconds 5100
+  $expired=$audio.Snapshot()
+  Check (-not [object]::ReferenceEquals($changed.inputs,$expired.inputs)) 'non-default device lists must refresh within five seconds'
+} finally { $audio.Dispose() }
 Write-Output 'AUDIO_NATIVE_LOGIC_PASSED'

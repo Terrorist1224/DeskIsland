@@ -15,8 +15,8 @@ class WidgetStore {
     this.state = this.#read();
   }
 
-  list() {
-    return this.state.widgets.map((widget) => structuredClone(widget));
+  list(typeId) {
+    return this.state.widgets.filter(widget=>!typeId||widget.typeId===typeId).map((widget) => structuredClone(widget));
   }
 
   getWeatherEnabled() { return this.state.weatherEnabled; }

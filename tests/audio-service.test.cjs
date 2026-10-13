@@ -81,6 +81,15 @@ test('volume and device updates use their host response without redundant device
   assert.deepEqual(calls.map(call=>call[0]),['audio.device']);
 });
 
+test('unchanged audio polls emit nothing; volume, error recovery and recording meters still propagate',async t=>{
+  const changes=[];const {service,value}=fixture(t,{onChange:state=>changes.push(state)});
+  await service.setEnabled(true);assert.equal(changes.length,1);
+  await service.refresh();await service.refresh();assert.equal(changes.length,1);
+  value.volume=32;await service.refresh();assert.equal(changes.at(-1).volume,32);assert.equal(changes.length,2);
+  service.state.error='测试读取失败';service.emit();await service.refresh();assert.equal(changes.at(-1).error,'');
+  await service.start();const count=changes.length;value.levels=[0.1];await service.readMeter();assert.equal(changes.length,count+1);
+});
+
 test('a snapshot started before a wheel change cannot overwrite the acknowledged volume',async t=>{
   const {service}=fixture(t);await service.setEnabled(true);
   let release;const host=service.host,request=host.request.bind(host);

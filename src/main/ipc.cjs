@@ -3,7 +3,7 @@ const widgetTypes = new Set(require('../shared/widget-catalog.json').map((item) 
 const mediaCommands = new Set(['toggle', 'next', 'previous', 'seek']);
 const { listWeatherRegions, getWeatherRegionPath } = require('./weather-regions.cjs');
 
-function registerHandlers({ store, getWindowsHost, weatherService, weatherSettings, openWeatherLink, lyricsService, widgetWindows, countdown, todoReminders, reminderWindow, desktopSearch, audioService, openAudioFolder, getInitialOrigin, getControlWindow, getAppInfo, getStartupSettings, setStartupSettings }) {
+function registerHandlers({ store, getWindowsHost, weatherService, weatherSettings, openWeatherLink, lyricsService, widgetWindows, countdown, todoReminders, reminderWindow, desktopSearch, audioService, openAudioFolder, getInitialOrigin, getControlWindow, getControlState, closeControlWindow, openControlWindow, getAppInfo, getStartupSettings, setStartupSettings }) {
   const savingLocations = new Set();
   ipcMain.handle('desktop-search:show', event => {
     const entry = [...widgetWindows.windows].find(([,window]) => !window.isDestroyed() && window.webContents === event.sender);
@@ -73,6 +73,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
     return widget.id;
   }
   function syncTodo(id) {
+    todoReminders?.reconcile(id);
     const widget=store.list().find(item=>item.typeId==='todo');
     reminderWindow?.sync(widget?.enabled ? widget.settings.items : []);
     widgetWindows?.windows.get(id)?.webContents.send('widget:settings');
@@ -158,14 +159,26 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
     return widgetWindows.setEditMode(enabled);
   });
   ipcMain.handle('control:minimize', (event) => { requireControl(event); getControlWindow().minimize(); });
-  ipcMain.handle('control:hide', (event) => { requireControl(event); widgetWindows.setEditMode(false); getControlWindow().hide(); });
+  ipcMain.handle('control:get-state',event=>{requireControl(event);return getControlState();});
+  ipcMain.handle('control:hide', (event,state) => {
+    requireControl(event);
+    if(!state||!widgetTypes.has(state.selectedType)||typeof state.settingsPage!=='boolean'||
+      typeof state.focusedWeatherId!=='string'||state.focusedWeatherId.length>64||
+      typeof state.apiHost!=='string'||state.apiHost.length>253||typeof state.apiKey!=='string'||state.apiKey.length>4096||
+      !state.weatherCodes||typeof state.weatherCodes!=='object'||Array.isArray(state.weatherCodes)||
+      Object.entries(state.weatherCodes).some(([id,codes])=>id.length>64||!Array.isArray(codes)||codes.length!==3||codes.some(code=>typeof code!=='string'||!/^(\d{2,6})?$/.test(code)))) throw new TypeError('Invalid control state');
+    closeControlWindow({selectedType:state.selectedType,settingsPage:state.settingsPage,focusedWeatherId:state.focusedWeatherId,apiHost:state.apiHost,apiKey:state.apiKey,weatherCodes:structuredClone(state.weatherCodes)});
+  });
   ipcMain.handle('control:configure-weather', (event) => {
     const widget=[...widgetWindows.windows].find(([,window])=>window.webContents===event.sender);
     if(!widget || store.list().find(item=>item.id===widget[0])?.typeId!=='weather') throw new Error('此操作只能由天气磁贴执行');
     if(widgetWindows.editMode) throw new Error('编辑时不能打开地点设置');
-    const control=getControlWindow();
+    const control=openControlWindow?.(widget[0])??getControlWindow();
     if(control.isMinimized()) control.restore();
-    control.show();control.focus();control.webContents.send('control:configure-weather', widget[0]);
+    control.show();control.focus();
+    const configure=()=>{if(!control.isDestroyed()) control.webContents.send('control:configure-weather',widget[0]);};
+    if(control.webContents.isLoadingMainFrame?.()) control.webContents.once('did-finish-load',configure);
+    else configure();
   });
   ipcMain.handle('widgets:show', (_event, id) => {
     if (typeof id !== 'string' || id.length > 64) throw new TypeError('Invalid widget id');
@@ -192,7 +205,10 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
     widgetWindows.windows.get(id)?.webContents.send('widget:settings');
     return saved;
   });
-  ipcMain.handle('media:snapshot', async () => getWindowsHost().request('media.snapshot'));
+  ipcMain.handle('media:snapshot', async (_event,knownMetadataKey) => {
+    if(knownMetadataKey!==undefined&&(typeof knownMetadataKey!=='string'||!/^\d+\/\d+$/.test(knownMetadataKey)||knownMetadataKey.length>64)) throw new TypeError('Invalid media metadata key');
+    return getWindowsHost().request('media.snapshot',{knownMetadataKey});
+  });
   ipcMain.handle('lyrics:get', (_event, track) => {
     if (!track || typeof track !== 'object' ||
         typeof track.title !== 'string' || track.title.trim().length < 1 || track.title.length > 200 ||
@@ -276,7 +292,7 @@ function unregisterWidgetHandlers() {
   ipcMain.removeHandler('weather:set-enabled');
   ipcMain.removeHandler('widgets:set-enabled');
   for (const channel of ['widget:begin-gesture','widget:end-gesture','control:configure-weather']) ipcMain.removeHandler(channel);
-  for (const channel of ['widgets:set-variant', 'desktop:get-edit-mode', 'desktop:set-edit-mode', 'control:minimize', 'control:hide']) ipcMain.removeHandler(channel);
+  for (const channel of ['widgets:set-variant', 'desktop:get-edit-mode', 'desktop:set-edit-mode', 'control:minimize', 'control:hide','control:get-state']) ipcMain.removeHandler(channel);
   ipcMain.removeHandler('widgets:list');
   ipcMain.removeHandler('widgets:create');
   ipcMain.removeHandler('widgets:remove');

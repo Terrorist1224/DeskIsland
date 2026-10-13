@@ -20,7 +20,7 @@ const startup = ref({ supported: false, enabled: false });
 const editMode = ref(false);
 const busy = ref(false);
 const errorMessage = ref('');
-const audioRecording = ref<AudioSnapshot['recording']>({status:'idle',elapsedMs:0});
+const audioRecording = ref<Pick<AudioSnapshot['recording'],'status'|'message'>>({status:'idle'});
 let removeAudioListener:(()=>void)|undefined;
 const weatherEnabled = ref(true);
 const savingLocations = ref<Record<string, boolean>>({});
@@ -30,6 +30,9 @@ const credentialStatus = ref<Awaited<ReturnType<typeof bridge.getWeatherCredenti
 const apiHost = ref('');
 const apiKey = ref('');
 const credentialSaved = ref(false);
+const weatherDrafts = ref<Record<string,string[]>>({});
+let removeClosingListener:(()=>void)|undefined;
+let requestedWeatherId='';
 const definition = computed(() => getWidgetDefinition(selectedType.value));
 const currentWidget = computed(() => widgets.value.find(item => item.typeId === selectedType.value));
 const previewMedia: MediaSnapshot = { available: true, title: '午后留声 · 示例歌曲', artist: '示例歌手', playbackStatus: 'Playing', durationTicks: 1_980_000_000 };
@@ -47,6 +50,10 @@ async function run(action: () => Promise<unknown>) {
   try { await action(); errorMessage.value = ''; }
   catch (error) { errorMessage.value = error instanceof Error ? error.message : '操作失败，请重试'; }
   finally { busy.value = false; }
+}
+function closeControl() {
+  return bridge.hideControlWindow({selectedType:selectedType.value,settingsPage:settingsPage.value,focusedWeatherId:focusedWeatherId.value,
+    apiHost:apiHost.value,apiKey:apiKey.value,weatherCodes:Object.fromEntries(Object.entries(weatherDrafts.value).map(([id,codes])=>[id,[...codes]]))});
 }
 async function refresh() {
   widgets.value = await bridge.listWidgets();
@@ -132,21 +139,27 @@ async function saveCredentials() {
   });
 }
 onMounted(() => {
-  removeAudioListener=bridge.onAudioChanged?.(state=>{audioRecording.value=state.recording;});
+  removeClosingListener=bridge.onControlClosing(()=>{void run(closeControl);});
+  removeAudioListener=bridge.onAudioRecordingChanged?.(recording=>{audioRecording.value=recording;});
   removeWeatherListener=bridge.onWeatherConfigurationRequest(async(id)=>{
+    requestedWeatherId=id;
     settingsPage.value=false;selectedType.value='weather';await focusWeather(id);
   });
   removeErrorListener=bridge.onDesktopError(message=>{errorMessage.value=message;});
   removeEditListener = bridge.onEditModeChange(enabled => { editMode.value = enabled; });
   void run(async () => {
+    const draft=await bridge.getControlState();
+    if(draft) {selectedType.value=draft.selectedType;settingsPage.value=draft.settingsPage;focusedWeatherId.value=draft.focusedWeatherId;weatherDrafts.value=draft.weatherCodes??{};apiHost.value=draft.apiHost??'';apiKey.value=draft.apiKey??'';}
     appVersion.value = (await bridge.getAppInfo()).version;
     if(bridge.getAudioSnapshot) audioRecording.value=(await bridge.getAudioSnapshot()).recording;
     await refresh(); editMode.value = await bridge.getEditMode();
     credentialStatus.value = await bridge.getWeatherCredentialsStatus();
-    apiHost.value = credentialStatus.value.host;
+    if(!draft) apiHost.value = credentialStatus.value.host;
+    if(settingsPage.value) startup.value=await bridge.getStartupSettings();
+    if(requestedWeatherId) {settingsPage.value=false;selectedType.value='weather';await focusWeather(requestedWeatherId);}
   });
 });
-onBeforeUnmount(() => {removeAudioListener?.();removeEditListener?.();removeWeatherListener?.();removeErrorListener?.();});
+onBeforeUnmount(() => {removeClosingListener?.();removeAudioListener?.();removeEditListener?.();removeWeatherListener?.();removeErrorListener?.();});
 </script>
 
 <template>
@@ -155,7 +168,7 @@ onBeforeUnmount(() => {removeAudioListener?.();removeEditListener?.();removeWeat
       <div class="brand">桌屿 <span>DeskIsland {{ appVersion }}</span></div>
       <div class="window-actions">
         <button type="button" aria-label="最小化" @click="run(() => bridge.minimizeControlWindow())">−</button>
-        <button type="button" aria-label="收起到托盘" @click="run(() => bridge.hideControlWindow())">×</button>
+        <button type="button" aria-label="收起到托盘" @click="run(closeControl)">×</button>
       </div>
     </header>
     <div class="app-layout">
@@ -200,7 +213,7 @@ onBeforeUnmount(() => {removeAudioListener?.();removeEditListener?.();removeWeat
             <thead><tr><th scope="col">选择地区</th><th scope="col">显示</th><th scope="col">类别</th><th scope="col">删除</th></tr></thead>
             <tbody>
               <tr v-for="(widget, index) in weatherWidgets" :id="`weather-row-${widget.id}`" :key="widget.id" tabindex="-1" :class="{ focused: focusedWeatherId === widget.id }">
-                <td><WeatherLocationSettings :location="(widget.settings.location as WeatherLocation | null)" :disabled="busy" :saving="!!savingLocations[widget.id]" @save="code => saveWeatherLocation(widget.id, code)" /></td>
+                <td><WeatherLocationSettings :location="(widget.settings.location as WeatherLocation | null)" :draft-codes="weatherDrafts[widget.id]" :disabled="busy" :saving="!!savingLocations[widget.id]" @change="codes => weatherDrafts[widget.id]=codes" @save="code => saveWeatherLocation(widget.id, code)" /></td>
                 <td><button type="button" class="widget-switch" role="switch" :aria-label="`显示第 ${index + 1} 个天气磁贴`" :aria-checked="widget.enabled" :disabled="busy" @click="toggleWeather(widget)"><span></span></button></td>
                 <td><select :aria-label="`第 ${index + 1} 个天气磁贴类别`" :value="widget.variantId" :disabled="busy" @change="setWeatherVariant(widget, $event)"><option v-for="variant in getWidgetDefinition('weather').variants" :key="variant.id" :value="variant.id">{{ variant.title }}</option></select></td>
                 <td><button type="button" :aria-label="`删除第 ${index + 1} 个天气磁贴`" :disabled="busy || !!savingLocations[widget.id]" @click="removeWeather(widget.id)">删除</button></td>
