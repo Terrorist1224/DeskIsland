@@ -4,15 +4,16 @@ const { GRID_SIZE, fitBoundsToGrid, resizeFromCorner, sizeAtScale } = require('.
 
 test('compact catalog minima shrink from each corner and keep the opposite grid edges',()=>{
   const catalog=require('../src/shared/widget-catalog.json');
-  const minima=[[160,160],[256,128],[160,128],[240,192],[160,160]];
-  catalog.flatMap(item=>item.variants).filter(item=>!item.size.freeResize).forEach(({size:base},index)=>{
-    assert.deepEqual(sizeAtScale(base,0),{width:minima[index][0],height:minima[index][1]});
+  const minima={'desktop-search:standard':[240,48],'music:square':[160,160],'music:wide':[256,128],'weather:standard':[160,128],'audio:standard':[240,192],'countdown:standard':[160,160]};
+  catalog.flatMap(item=>item.variants.map(variant=>({...variant,typeId:item.typeId}))).filter(item=>!item.size.freeResize).forEach(({size:base,typeId,id})=>{
+    const minimum=minima[`${typeId}:${id}`];
+    assert.deepEqual(sizeAtScale(base,0),{width:minimum[0],height:minimum[1]});
     const start={x:-960,y:160,width:base.width,height:base.height};
     const area={x:-1280,y:0,width:1280,height:960};
     for(const corner of ['nw','ne','sw','se']) {
       const left=corner.includes('w'),top=corner.includes('n');
       const next=resizeFromCorner(start,base,corner,{x:left?999:-999,y:top?999:-999},area);
-      assert.equal(next.width,minima[index][0]);assert.equal(next.height,minima[index][1]);
+      assert.equal(next.width,minimum[0]);assert.equal(next.height,minimum[1]);
       assert.equal(left?next.x+next.width:next.x,left?start.x+start.width:start.x);
       assert.equal(top?next.y+next.height:next.y,top?start.y+start.height:start.y);
       for(const edge of [next.x-area.x,next.y-area.y,next.width,next.height])assert.equal(edge%16,0);

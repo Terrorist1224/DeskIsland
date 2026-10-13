@@ -1,6 +1,16 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('deskIsland', {
+  openDesktopSearch: () => ipcRenderer.invoke('desktop-search:show'),
+  listDesktopSearchItems: () => ipcRenderer.invoke('desktop-search:list'),
+  resizeDesktopSearch: height => ipcRenderer.invoke('desktop-search:resize', height),
+  getDesktopSearchIcon: id => ipcRenderer.invoke('desktop-search:icon', id),
+  openDesktopSearchItem: id => ipcRenderer.invoke('desktop-search:open-item', id),
+  closeDesktopSearch: () => ipcRenderer.invoke('desktop-search:close'),
+  onDesktopSearchCollapsed: callback => {
+    const listener = () => callback();ipcRenderer.on('desktop-search:collapsed', listener);
+    return () => ipcRenderer.removeListener('desktop-search:collapsed', listener);
+  },
   getAudioSnapshot: () => ipcRenderer.invoke('audio:snapshot'),
   setSystemVolume: volume => ipcRenderer.invoke('audio:volume', volume),
   setDefaultAudioDevice: (kind,id) => ipcRenderer.invoke('audio:device',kind,id),

@@ -3,8 +3,19 @@ const widgetTypes = new Set(require('../shared/widget-catalog.json').map((item) 
 const mediaCommands = new Set(['toggle', 'next', 'previous', 'seek']);
 const { listWeatherRegions, getWeatherRegionPath } = require('./weather-regions.cjs');
 
-function registerHandlers({ store, getWindowsHost, weatherService, weatherSettings, openWeatherLink, lyricsService, widgetWindows, countdown, todoReminders, reminderWindow, audioService, openAudioFolder, getInitialOrigin, getControlWindow, getAppInfo, getStartupSettings, setStartupSettings }) {
+function registerHandlers({ store, getWindowsHost, weatherService, weatherSettings, openWeatherLink, lyricsService, widgetWindows, countdown, todoReminders, reminderWindow, desktopSearch, audioService, openAudioFolder, getInitialOrigin, getControlWindow, getAppInfo, getStartupSettings, setStartupSettings }) {
   const savingLocations = new Set();
+  ipcMain.handle('desktop-search:show', event => {
+    const entry = [...widgetWindows.windows].find(([,window]) => !window.isDestroyed() && window.webContents === event.sender);
+    const widget = entry && store.list().find(item => item.id === entry[0]);
+    if (!widget || widget.typeId !== 'desktop-search' || !widget.enabled || widgetWindows.editMode) throw new Error('此操作只能由开启的桌面搜索磁贴执行');
+    return desktopSearch.show(widgetWindows.windows.get(widget.id));
+  });
+  ipcMain.handle('desktop-search:list', event => desktopSearch.list(event.sender));
+  ipcMain.handle('desktop-search:resize', (event, height) => desktopSearch.resize(event.sender, height));
+  ipcMain.handle('desktop-search:icon', (event, id) => desktopSearch.icon(event.sender, id));
+  ipcMain.handle('desktop-search:open-item', (event, id) => desktopSearch.open(event.sender, id));
+  ipcMain.handle('desktop-search:close', event => { desktopSearch.requireSender(event.sender);desktopSearch.close(); });
   ipcMain.handle('countdown:action', (event, action, input = {}) => {
     const entry = [...widgetWindows.windows].find(([,window]) => !window.isDestroyed() && window.webContents === event.sender);
     const widget = entry && store.list().find(item => item.id === entry[0]);
@@ -107,6 +118,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
     requireControl(event);
     if (typeof id !== 'string' || id.length > 64) throw new TypeError('Invalid widget id');
     if(store.list().find(item=>item.id===id)?.typeId==='countdown') countdown.cancel(id);
+    if(store.list().find(item=>item.id===id)?.typeId==='desktop-search') desktopSearch?.close();
     store.remove(id);
     if(audioService && audioService.enabled && !store.list().some(item=>item.typeId==='audio'&&item.enabled)) void audioService.setEnabled(false).catch(error=>getControlWindow()?.webContents.send('desktop:error',error.message));
     widgetWindows?.remove(id);
@@ -124,6 +136,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
     const widget = store.setEnabled(id, enabled);
     if(widget.typeId==='audio') void audioService.setEnabled(enabled).catch(error=>getControlWindow()?.webContents.send('desktop:error',error.message));
     if(widget.typeId==='countdown' && !enabled) countdown.cancel(id);
+    if(widget.typeId==='desktop-search' && !enabled) desktopSearch?.close();
     if (enabled) widgetWindows.show(widget);
     else widgetWindows.remove(id);
     if(widget.typeId==='todo') { todoReminders?.reconcile(id);syncTodo(id); }
@@ -254,6 +267,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
 }
 
 function unregisterWidgetHandlers() {
+  for (const channel of ['desktop-search:show','desktop-search:list','desktop-search:resize','desktop-search:icon','desktop-search:open-item','desktop-search:close']) ipcMain.removeHandler(channel);
   for(const channel of ['audio:snapshot','audio:volume','audio:device','audio:start','audio:stop','audio:retry-save','audio:open-folder']) ipcMain.removeHandler(channel);
   for(const channel of ['countdown:action','todo:add','todo:complete','todo:move','todo-reminder:get','todo-reminder:dismiss','todo-reminder:preview']) ipcMain.removeHandler(channel);
   for (const channel of ['app:info', 'app:get-startup', 'app:set-startup']) ipcMain.removeHandler(channel);

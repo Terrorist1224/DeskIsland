@@ -1,4 +1,5 @@
-export type WidgetType = 'music' | 'weather' | 'todo' | 'countdown' | 'audio';
+export type WidgetType = 'music' | 'weather' | 'todo' | 'countdown' | 'audio' | 'desktop-search';
+export interface DesktopSearchItem { id: string; name: string; kind: 'file' | 'folder' | 'shortcut'; path: string }
 export interface AudioDevice { id: string; name: string }
 export interface AudioSnapshot {
   volume: number | null; inputs: AudioDevice[]; outputs: AudioDevice[];
@@ -102,6 +103,13 @@ export interface WeatherSnapshot {
 }
 
 export interface DesktopIslandBridge {
+  openDesktopSearch(): Promise<void>;
+  listDesktopSearchItems(): Promise<{ items: DesktopSearchItem[]; warnings: string[]; iconSize: number }>;
+  resizeDesktopSearch(height: number): Promise<void>;
+  getDesktopSearchIcon(id: string): Promise<string | null>;
+  openDesktopSearchItem(id: string): Promise<void>;
+  closeDesktopSearch(): Promise<void>;
+  onDesktopSearchCollapsed(callback: () => void): () => void;
   getAudioSnapshot(): Promise<AudioSnapshot>;
   setSystemVolume(volume: number): Promise<AudioSnapshot>;
   setDefaultAudioDevice(kind: 'input'|'output', id: string): Promise<AudioSnapshot>;

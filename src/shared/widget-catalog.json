@@ -1,5 +1,14 @@
 [
   {
+    "typeId": "desktop-search",
+    "title": "桌面搜索",
+    "defaultSize": { "width": 320, "height": 64 },
+    "variants": [
+      { "id": "standard", "title": "桌面搜索框", "size": { "width": 320, "height": 64, "minimumWidth": 240 } }
+    ],
+    "defaultSettings": {}
+  },
+  {
     "typeId": "music",
     "title": "音乐",
     "defaultSize": { "width": 240, "height": 240 },

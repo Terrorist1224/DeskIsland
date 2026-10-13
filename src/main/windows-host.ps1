@@ -1,4 +1,4 @@
-# A single hidden Windows PowerShell 5.1 worker owns Windows Runtime media access.
+﻿# A single hidden Windows PowerShell 5.1 worker owns Windows Runtime media access.
 # The stdin/stdout JSON-lines protocol keeps WinRT objects out of Electron IPC.
 
 $ErrorActionPreference = 'Stop'
@@ -47,7 +47,7 @@ public static class DeskIslandWindowState {
     // Explorer may host DefView in Progman or WorkerW. Bind to the actual icon host, not a stale shell HWND.
     int style = (GetWindowLong(window, -20) | 0x00000080) & ~0x00040000;
     style = focusable ? style & ~0x08000000 : style | 0x08000000;
-    SetWindowValue(window, -20, new IntPtr(style)); // Only todo accepts keyboard focus; all tiles remain TOOLWINDOW.
+    SetWindowValue(window, -20, new IntPtr(style)); // Interactive tiles accept keyboard focus; all tiles remain TOOLWINDOW.
     SetWindowValue(window, -8, desktop); // GWLP_HWNDPARENT sets the owner of this top-level window.
     if (GetWindow(window, 4) != desktop || (GetWindowLong(window, -20) & 0x08000080) != (focusable ? 0x00000080 : 0x08000080))
       throw new InvalidOperationException("Windows rejected desktop widget ownership.");
@@ -301,6 +301,32 @@ function Invoke-MediaCommand {
   return @{ accepted = [bool]$accepted }
 }
 
+function Get-DesktopItems {
+  # Read Explorer's saved desktop size, in logical pixels; never change desktop settings.
+  # shortcut: unsaved Explorer zoom can lag; use IFolderView2 if exact live size tracking is required.
+  $iconSize = 48
+  $savedSize = Get-ItemPropertyValue -LiteralPath 'HKCU:\Software\Microsoft\Windows\Shell\Bags\1\Desktop' -Name IconSize -ErrorAction SilentlyContinue
+  if ($savedSize -ge 16 -and $savedSize -le 256) { $iconSize = [int]$savedSize }
+  $roots = @()
+  $items = @()
+  $warnings = @()
+  foreach ($folder in @([Environment+SpecialFolder]::DesktopDirectory, [Environment+SpecialFolder]::CommonDesktopDirectory)) {
+    $root = [Environment]::GetFolderPath($folder)
+    if ([string]::IsNullOrWhiteSpace($root)) { $warnings += "无法获取桌面目录：$folder"; continue }
+    if ($roots -contains $root) { continue }
+    $roots += $root
+    try {
+      # Known folders follow Desktop relocation; enumerate only direct children and never shortcut targets.
+      foreach ($entry in @(Get-ChildItem -LiteralPath $root -ErrorAction Stop)) {
+        if ($entry.Attributes -band ([IO.FileAttributes]::Hidden -bor [IO.FileAttributes]::System)) { continue }
+        $kind = if ($entry.PSIsContainer) { 'folder' } elseif ($entry.Extension -in @('.lnk', '.url')) { 'shortcut' } else { 'file' }
+        $items += @{ name = $entry.Name; path = $entry.FullName; kind = $kind }
+      }
+    } catch { $warnings += "无法读取桌面目录 ${root}：$($_.Exception.Message)" }
+  }
+  return @{ roots = @($roots); items = @($items); warnings = @($warnings); iconSize = $iconSize }
+}
+
 while ($null -ne ($line = [Console]::In.ReadLine())) {
   if ([string]::IsNullOrWhiteSpace($line)) { continue }
   $id = $null
@@ -308,6 +334,14 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
     $message = $line | ConvertFrom-Json
     $id = $message.id
     switch ($message.method) {
+      'desktop.icon' {
+        if (-not ('DeskIslandShellIcon' -as [type])) {
+          Add-Type -Path (Join-Path $PSScriptRoot 'desktop-search-icons.cs') -ReferencedAssemblies System.Drawing
+        }
+        if ($message.size -isnot [int] -and $message.size -isnot [long]) { throw 'Icon size must be an integer.' }
+        $result = @{ dataUrl = [DeskIslandShellIcon]::Read([string]$message.path, [int]$message.size) }
+      }
+      'desktop.list' { $result = Get-DesktopItems }
       'media.snapshot' { $result = Get-MediaSnapshot }
       'media.command' { $result = Invoke-MediaCommand -Message $message }
       'system.pause-state' { $result = @{ shouldPause = [DeskIslandWindowState]::ShouldPauseWidgets() } }

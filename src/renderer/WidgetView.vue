@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import MusicTile from './components/MusicTile.vue';
+import SearchTile from './components/desktop-search/SearchTile.vue';
 import AudioTile from './components/audio/AudioTile.vue';
 import CountdownTile from './components/countdown/CountdownTile.vue';
 import TodoTile from './components/todo/TodoTile.vue';
@@ -50,7 +51,7 @@ const isMusic = computed(() => widget.value?.typeId === 'music');
 const baseSize=computed(()=>widget.value ? getWidgetDefinition(widget.value.typeId).variants.find(item=>item.id===widget.value!.variantId)!.size : {width:240,height:240});
 const compact=computed(()=>liveWidth.value<baseSize.value.width);
 const contentStyle=computed(()=>{
-  if(widget.value?.typeId==='todo') return {width:'100%',height:'100%',transform:'none'};
+  if(['todo','desktop-search'].includes(widget.value?.typeId ?? '')) return {width:'100%',height:'100%',transform:'none'};
   if(widget.value?.typeId==='countdown') return {width:`${baseSize.value.width}px`,height:`${baseSize.value.height}px`,transform:`scale(${liveWidth.value/baseSize.value.width})`};
   const width=Math.min(liveWidth.value,baseSize.value.width);
   return {width:`${width}px`,height:`${width*baseSize.value.height/baseSize.value.width}px`,transform:`scale(${Math.max(1,liveWidth.value/baseSize.value.width)})`};
@@ -295,6 +296,7 @@ onBeforeUnmount(() => {
       :lyric-line="media?.timelineAvailable === false ? undefined : currentLyric" :lyric-end-seconds="lyricEndSeconds" :lyric="media?.timelineAvailable === false ? '未提供播放时间，歌词同步不可用' : currentLyric?.text || (lyricsLoading ? '正在获取歌词…' : lyricsError ? lyricAttempts < 3 ? '正在重试歌词…' : '歌词暂时无法获取' : lyrics?.lines.length ? '等待歌词开始' : lyrics?.plainLyrics ? '暂无同步歌词' : lyricTrackKey ? '暂无匹配歌词' : '等待歌词')"
       @command="sendMediaCommand" />
 
+    <SearchTile v-else-if="widget.typeId === 'desktop-search'" :width="liveWidth" />
     <AudioTile v-else-if="widget.typeId === 'audio'" />
     <CountdownTile v-else-if="widget.typeId === 'countdown'" :compact="compact" />
     <TodoTile v-else-if="widget.typeId === 'todo'" :items="widget.settings.items as TodoItem[]" :editing="editMode" @saved="items => { if(widget) widget.settings.items = items; }" />
@@ -329,6 +331,7 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
+.tile.tile--desktop-search{background:transparent;border:0;border-radius:0}
 .tile--todo{background:#BEDAE4!important;border-color:transparent!important}
 .weather--compact{padding:6px 12px!important}.weather--compact .weather__temperature{font-size:34px}.weather__place.weather__configure{min-height:28px}.weather--compact .weather__condition{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.weather--compact .weather__stale{font-size:10px;margin-top:2px}
 .weather__configure{background:#ffffff10;border:1px solid #ffffff26;border-radius:8px;color:inherit;padding:8px;cursor:pointer;text-align:left}.weather__place.weather__configure{padding:0;background:none;border:none;width:100%;max-width:100%;overflow:auto;white-space:normal;overflow-wrap:anywhere;scrollbar-width:none;line-height:1.35;flex-shrink:0}

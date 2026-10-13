@@ -3,6 +3,7 @@ const { supportsNativeAcrylic, installLegacyGlass } = require('./window-glass.cj
 const { app, BrowserWindow, screen, Menu, Tray, nativeTheme, globalShortcut, safeStorage, shell, dialog, powerMonitor } = require('electron');
 const { TodoReminders } = require('./todo-reminders.cjs');
 const { TodoReminderWindow } = require('./todo-reminder-window.cjs');
+const { DesktopSearch } = require('./desktop-search.cjs');
 const { configureDataPaths, getStartupSettings, setStartupSettings } = require('./runtime-settings.cjs');
 const { WidgetStore } = require('./widget-store.cjs');
 const { WidgetWindows } = require('./widget-windows.cjs');
@@ -40,6 +41,7 @@ const { Countdown } = require('./countdown.cjs');
 let countdown;
 let todoReminders;
 let reminderWindow;
+let desktopSearch;
 const powerListeners = [];
 
 function getWindowsHost() {
@@ -129,6 +131,7 @@ if (primaryInstance) app.whenReady().then(() => {
     devUrl: process.env.DESKISLAND_DEV_URL,
   });
   widgetWindows.onEditModeChange = (enabled) => {
+    if(enabled) desktopSearch?.close();
     if(enabled) globalShortcut.register('Escape',()=>widgetWindows.setEditMode(false));
     else globalShortcut.unregister('Escape');
     if (controlWindow && !controlWindow.isDestroyed()) controlWindow.webContents.send('desktop:edit-mode', enabled);
@@ -137,8 +140,13 @@ if (primaryInstance) app.whenReady().then(() => {
     console.error('Desktop widget initialization failed:',message);
     controlWindow?.webContents.send('desktop:error',message);
   };
+  desktopSearch = new DesktopSearch({
+    screen, getWindowsHost,
+    getFileIcon: (filePath, options) => app.getFileIcon(filePath, options),
+    openPath: filePath => shell.openPath(filePath),
+  });
   for (const event of ['display-added', 'display-removed', 'display-metrics-changed']) {
-    screen.on(event, () => widgetWindows.setEditMode(false));
+    screen.on(event, () => { desktopSearch.close();widgetWindows.setEditMode(false); });
   }
   const reportTodoError = error => {
     console.error('Todo reminder failed:', error);
@@ -186,6 +194,7 @@ if (primaryInstance) app.whenReady().then(() => {
   if(powerMonitor.getSystemIdleState(1)==='locked') { todoReminders.setBlocked('lock',true);countdown.setBlocked('lock',true); }
   todoReminders.start();
   registerHandlers({
+    desktopSearch,
     audioService,
     openAudioFolder:()=>{const saved=audioService.snapshot.recording.savedPath;if(saved) shell.showItemInFolder(saved);},
     getAppInfo: () => ({ version: app.getVersion() }),
@@ -240,6 +249,7 @@ app.on('before-quit', event => {
   countdown?.close();
   todoReminders?.close();
   reminderWindow?.close();
+  desktopSearch?.close();
   for(const [event,listener] of powerListeners) powerMonitor.removeListener(event,listener);
   widgetWindows?.closeAll();
   windowsHost?.close();
