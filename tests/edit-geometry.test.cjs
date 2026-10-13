@@ -4,7 +4,7 @@ const { GRID_SIZE, fitBoundsToGrid, resizeFromCorner, sizeAtScale } = require('.
 
 test('compact catalog minima shrink from each corner and keep the opposite grid edges',()=>{
   const catalog=require('../src/shared/widget-catalog.json');
-  const minima={'desktop-search:standard':[240,48],'music:square':[160,160],'music:wide':[256,128],'weather:standard':[160,128],'audio:standard':[240,192],'countdown:standard':[160,160]};
+  const minima={'desktop-search:standard':[240,48],'music:square':[160,160],'music:wide':[320,160],'weather:standard':[208,160],'audio:standard':[240,160],'countdown:standard':[160,160]};
   catalog.flatMap(item=>item.variants.map(variant=>({...variant,typeId:item.typeId}))).filter(item=>!item.size.freeResize).forEach(({size:base,typeId,id})=>{
     const minimum=minima[`${typeId}:${id}`];
     assert.deepEqual(sizeAtScale(base,0),{width:minimum[0],height:minimum[1]});

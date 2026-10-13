@@ -40,6 +40,7 @@ function moveTileGroup(tiles, groupIds, delta, cellSize = GRID_SIZE) {
     : tile);
 }
 
+// shortcut: exact grid ratios give 13:10 weather two sizes; use independent axes if finer resizing is needed.
 function sizeSteps(base) {
   const gcd = (a,b) => b ? gcd(b,a%b) : a;
   const minimum = gcd(base.width/GRID_SIZE,base.height/GRID_SIZE);

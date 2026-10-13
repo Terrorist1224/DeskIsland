@@ -64,6 +64,8 @@ test('todo stores independent colors, full text, optional seconds and independen
   assert.equal(store.list()[0].settings.items.length, 1);
   assert.throws(() => store.updateSettings(widget.id, {items: []}), /专用/);
   assert.throws(() => store.updateBounds(widget.id, {x: 0, y: 0, width: 160, height: 496, monitorId: '2'}), /Invalid/);
+  assert.throws(() => store.updateBounds(widget.id, {x: 0, y: 0, width: 144, height: 480, monitorId: '2'}), /Invalid/);
+  assert.throws(() => store.updateBounds(widget.id, {x: 0, y: 0, width: 480, height: 144, monitorId: '2'}), /Invalid/);
 });
 
 test('todo validation rejects malformed input and impossible local dates without normalizing them', () => {
@@ -107,6 +109,7 @@ test('free resize keeps opposite edges, adapts both axes and preserves rectangul
     assert.equal(top?next.y+next.height:next.y,top?start.y+start.height:start.y);
   }
   assert.deepEqual(fitBoundsToGrid({x:-50,y:650,width:160,height:480},base,area), {x:-160,y:231,width:160,height:480});
+  assert.deepEqual(fitBoundsToGrid({x:-960,y:167,width:144,height:144},base,area), {x:-960,y:167,width:160,height:160});
   assert.throws(() => fitBoundsToGrid(start,base,{x:0,y:0,width:150,height:500}), /工作区/);
 });
 

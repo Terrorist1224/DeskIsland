@@ -242,7 +242,7 @@ onBeforeUnmount(() => {removeAudioListener?.();removeEditListener?.();removeWeat
 <style>
 .preview-search{width:320px;height:64px;overflow:hidden}
 .preview-countdown{width:240px;height:240px;border:1px solid #ffffff40;border-radius:20px;background:rgba(8,10,14,.34);overflow:hidden}
-.preview-audio{height:192px}
+.preview-audio{height:160px}
 .preview-todo{width:240px;height:240px;border-radius:20px;overflow:hidden}
 .settings-button{position:absolute;bottom:24px;left:14px;width:132px}.settings-button.selected{background:#ffffff14;font-weight:600}.general-settings{padding:20px;border:1px solid #ffffff26;border-radius:12px;background:#ffffff08}.startup-setting{display:flex;align-items:center;gap:10px}.general-settings p{font-size:12px;line-height:1.7;color:#e6e2e6}.widget-switch:focus-visible{outline:2px solid #eee9ef;outline-offset:3px}
 *{box-sizing:border-box}html,body,#app{height:100%;margin:0;background:transparent}body{font-family:"Segoe UI","Microsoft YaHei UI",sans-serif;color:#fafafa;font-size:14px;color-scheme:dark}button,input{font:inherit}button{cursor:pointer;color:inherit}button:disabled{cursor:default}button:focus-visible,input:focus-visible{outline:2px solid #eee9ef;outline-offset:3px}

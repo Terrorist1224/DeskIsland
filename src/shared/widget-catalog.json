@@ -14,16 +14,16 @@
     "defaultSize": { "width": 240, "height": 240 },
     "variants": [
       { "id": "square", "title": "方形封面", "size": { "width": 240, "height": 240, "minimumWidth": 160 } },
-      { "id": "wide", "title": "横向歌词", "size": { "width": 416, "height": 208, "minimumWidth": 256 } }
+      { "id": "wide", "title": "横向歌词", "size": { "width": 416, "height": 208, "minimumWidth": 320 } }
     ],
     "defaultSettings": {}
   },
   {
     "typeId": "weather",
     "title": "天气",
-    "defaultSize": { "width": 240, "height": 192 },
+    "defaultSize": { "width": 208, "height": 160 },
     "variants": [
-      { "id": "standard", "title": "日常天气", "size": { "width": 240, "height": 192, "minimumWidth": 160 } }
+      { "id": "standard", "title": "日常天气", "size": { "width": 208, "height": 160, "minimumWidth": 208 } }
     ],
     "defaultSettings": { "location": null }
   },
@@ -39,9 +39,9 @@
   {
     "typeId": "audio",
     "title": "多媒体",
-    "defaultSize": { "width": 240, "height": 192 },
+    "defaultSize": { "width": 240, "height": 160 },
     "variants": [
-      { "id": "standard", "title": "音量优先", "size": { "width": 240, "height": 192, "minimumWidth": 240 } }
+      { "id": "standard", "title": "音量优先", "size": { "width": 240, "height": 160, "minimumWidth": 240 } }
     ],
     "defaultSettings": {}
   },

@@ -8,14 +8,16 @@ const { WidgetStore } = require('../src/main/widget-store.cjs');
 test('previous audio square bounds load as compact bounds without changing identity, settings or the source file',t=>{
   const directory=path.join(__dirname,'../.tmp/tests',`audio-size-${randomUUID()}`);fs.mkdirSync(directory,{recursive:true});
   t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
-  const store=new WidgetStore(directory),widget=store.create('audio');assert.equal(widget.width,240);assert.equal(widget.height,192);
+  const store=new WidgetStore(directory),widget=store.create('audio');assert.equal(widget.width,240);assert.equal(widget.height,160);
   const file=path.join(directory,'deskisland.json'),saved=JSON.parse(fs.readFileSync(file,'utf8'));
   saved.widgets[0].height=240;const original=JSON.stringify(saved);fs.writeFileSync(file,original);
-  const migrated=new WidgetStore(directory).list()[0];assert.deepEqual(migrated,{...widget,height:192});assert.equal(fs.readFileSync(file,'utf8'),original);
+  const migrated=new WidgetStore(directory).list()[0];assert.deepEqual(migrated,widget);assert.equal(fs.readFileSync(file,'utf8'),original);
+  saved.widgets[0].height=192;fs.writeFileSync(file,JSON.stringify(saved));
+  assert.deepEqual(new WidgetStore(directory).list()[0],widget);
   saved.widgets[0].height=160;fs.writeFileSync(file,JSON.stringify(saved));
   assert.deepEqual(new WidgetStore(directory).list()[0],widget);
   saved.widgets[0].width=480;saved.widgets[0].height=480;fs.writeFileSync(file,JSON.stringify(saved));
-  assert.equal(new WidgetStore(directory).list()[0].height,384);
+  assert.equal(new WidgetStore(directory).list()[0].height,320);
   saved.widgets[0].width=241;saved.widgets[0].height=241;fs.writeFileSync(file,JSON.stringify(saved));
   assert.throws(()=>new WidgetStore(directory),/Invalid persisted widget size/);
 });
@@ -220,11 +222,62 @@ test('compact sizes persist and style switching retains scale below the default'
   store.updateBounds(music.id,{...music,width:160,height:160});
   assert.equal(new WidgetStore(directory).list()[0].width,160);
   const wide=store.setVariant(music.id,'wide');
-  assert.equal(wide.width,288);assert.equal(wide.height,144);
+  assert.equal(wide.width,320);assert.equal(wide.height,160);
   const square=store.setVariant(music.id,'square');
-  assert.equal(square.width,160);assert.equal(square.id,music.id);
+  assert.equal(square.width,192);assert.equal(square.id,music.id);
   assert.throws(()=>store.updateBounds(music.id,{...square,width:144,height:144}),/Invalid/);
   const weather=store.create('weather');
-  store.updateBounds(weather.id,{...weather,width:160,height:128});
-  assert.equal(new WidgetStore(directory).list()[1].height,128);
+  store.updateBounds(weather.id,{...weather,width:208,height:160});
+  assert.equal(new WidgetStore(directory).list()[1].height,160);
+  assert.throws(()=>store.updateBounds(weather.id,{...weather,width:160,height:128}),/Invalid/);
+});
+
+test('previous valid tile sizes adapt to compact ratios and minima while preserving data',t=>{
+  const directory=path.join(__dirname,'../.tmp/tests',`minimum-size-${randomUUID()}`);
+  t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const cases=[
+    ['music','square',160,160,160,160],['music','square',192,192,192,192],
+    ['music','wide',256,128,320,160],['music','wide',352,176,352,176],
+    ['weather','standard',160,128,208,160],['weather','standard',240,192,208,160],
+    ['weather','standard',480,384,416,320],['countdown','standard',160,160,160,160],
+    ['todo','standard',160,160,160,160],['todo','standard',480,160,480,160],
+    ['todo','standard',160,480,160,480],['todo','standard',208,176,208,176],
+    ['music','square',288,288,288,288],['weather','standard',416,320,416,320],
+    ['desktop-search','standard',240,48,240,48],['audio','standard',240,192,240,160],
+    ['audio','standard',320,256,336,224],['audio','standard',240,160,240,160],
+  ];
+  for(const [typeId,variantId,width,height,nextWidth,nextHeight] of cases) {
+    const store=new WidgetStore(directory),widget=store.create(typeId,undefined,variantId,false);
+    if(typeId==='todo') store.addTodo(widget.id,{text:'测试保留事项',color:'yellow',remindAt:null});
+    if(typeId==='weather') store.updateSettings(widget.id,{location:{name:'测试保留地点'}});
+    if(typeId==='countdown') store.updateSettings(widget.id,{seconds:120,presets:[{id:'test-preset',name:'测试预设',seconds:60}]});
+    const saved=JSON.parse(fs.readFileSync(store.filePath,'utf8'));
+    Object.assign(saved.widgets[0],{width,height,x:-960,y:64,monitorId:'2',groupId:'test-group'});
+    const original=JSON.stringify(saved);fs.writeFileSync(store.filePath,original);
+    const restored=new WidgetStore(directory);
+    assert.deepEqual(restored.list(),[{...saved.widgets[0],width:nextWidth,height:nextHeight}]);
+    assert.equal(fs.readFileSync(store.filePath,'utf8'),original);
+    restored.setEnabled(widget.id,true);
+    assert.deepEqual(new WidgetStore(directory).list(),restored.list());
+    restored.remove(widget.id);
+  }
+});
+
+test('small-size migration still rejects malformed persisted bounds without overwriting the file',t=>{
+  const directory=path.join(__dirname,'../.tmp/tests',`minimum-invalid-${randomUUID()}`);
+  t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const store=new WidgetStore(directory);store.create('music');
+  const saved=JSON.parse(fs.readFileSync(store.filePath,'utf8'));
+  for(const [width,height] of [[144,144],[161,161],[160,176],[512,512]]) {
+    Object.assign(saved.widgets[0],{width,height});
+    const original=JSON.stringify(saved);fs.writeFileSync(store.filePath,original);
+    assert.throws(()=>new WidgetStore(directory),/Invalid persisted widget size/);
+    assert.equal(fs.readFileSync(store.filePath,'utf8'),original);
+  }
+  for(const [typeId,width,height] of [['weather',208,176],['weather',240,160],['weather',80,64],['weather',560,448],['audio',240,176],['audio',241,192]]) {
+    Object.assign(saved.widgets[0],{typeId,variantId:'standard',settings:{},width,height});
+    const original=JSON.stringify(saved);fs.writeFileSync(store.filePath,original);
+    assert.throws(()=>new WidgetStore(directory),/Invalid persisted widget size/);
+    assert.equal(fs.readFileSync(store.filePath,'utf8'),original);
+  }
 });
