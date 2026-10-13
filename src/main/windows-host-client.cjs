@@ -4,16 +4,18 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 
 class WindowsHostClient {
-  constructor(scriptPath = path.join(__dirname, 'windows-host.ps1')) {
+  constructor(scriptPath = path.join(__dirname, 'windows-host.ps1'), scriptArgs = []) {
     if (process.platform !== 'win32') throw new Error('DeskIsland Windows host is only available on Windows.');
     this.child = spawn('powershell.exe', [
-      '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath,
+      '-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', scriptPath, ...scriptArgs,
     ], { windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
     this.pending = new Map();
     this.lines = readline.createInterface({ input: this.child.stdout });
     this.lines.on('line', (line) => this.#onLine(line));
     this.child.on('error', (error) => this.#failAll(error));
     this.child.on('exit', (code) => this.#failAll(new Error(`Windows host exited (${code ?? 'unknown'}).`)));
+    this.stderr = '';
+    this.child.stderr.on('data', chunk => { this.stderr = (this.stderr + chunk).slice(-4000); });
   }
 
   request(method, payload = {}) {

@@ -7,6 +7,7 @@ const { configureDataPaths, getStartupSettings, setStartupSettings } = require('
 const { WidgetStore } = require('./widget-store.cjs');
 const { WidgetWindows } = require('./widget-windows.cjs');
 const { WindowsHostClient } = require('./windows-host-client.cjs');
+const { AudioService } = require('./audio/audio-service.cjs');
 const { WeatherService } = require('./weather-service.cjs');
 const { QWeatherSettings } = require('./qweather-settings.cjs');
 const { LyricsService } = require('./lyrics-service.cjs');
@@ -32,6 +33,8 @@ let weatherService;
 let lyricsService;
 let windowsHost;
 let tray;
+let audioService;
+let quitPending=false;
 let quitting = false;
 const { Countdown } = require('./countdown.cjs');
 let countdown;
@@ -105,6 +108,17 @@ if (primaryInstance) app.whenReady().then(() => {
   const weatherSettings = new QWeatherSettings(app.getPath('userData'), safeStorage);
   weatherService = new WeatherService({ qweather: weatherSettings.service });
   lyricsService = new LyricsService();
+  audioService = new AudioService({
+    userDataPath:app.getPath('userData'),runtimePath:app.isPackaged?path.join(app.getAppPath(),'audio-runtime'):path.join(app.getAppPath(),'.tmp','audio-runtime'),desktopPath:app.getPath('desktop'),
+    chooseSavePath:async name=>{
+      const options={title:'保存录音',defaultPath:path.join(app.getPath('desktop'),name),filters:[{name:'MP3 音频',extensions:['mp3']}]};
+      const result=controlWindow?.isVisible()?await dialog.showSaveDialog(controlWindow,options):await dialog.showSaveDialog(options);
+      return result.canceled?null:result.filePath;
+    },
+    onChange:state=>{
+      for(const window of [controlWindow,...(widgetWindows?.windows.values()??[])]) if(window&&!window.isDestroyed()) window.webContents.send('audio:changed',state);
+    },
+  });
   widgetWindows = new WidgetWindows({
     BrowserWindow,
     screen,
@@ -172,6 +186,8 @@ if (primaryInstance) app.whenReady().then(() => {
   if(powerMonitor.getSystemIdleState(1)==='locked') { todoReminders.setBlocked('lock',true);countdown.setBlocked('lock',true); }
   todoReminders.start();
   registerHandlers({
+    audioService,
+    openAudioFolder:()=>{const saved=audioService.snapshot.recording.savedPath;if(saved) shell.showItemInFolder(saved);},
     getAppInfo: () => ({ version: app.getVersion() }),
     getStartupSettings: () => getStartupSettings(app),
     setStartupSettings: enabled => setStartupSettings(app, enabled),
@@ -196,6 +212,7 @@ if (primaryInstance) app.whenReady().then(() => {
     },
   });
   createControlWindow(!silentStartup);
+  void audioService.recover().then(()=>audioService.setEnabled(store.list().some(item=>item.typeId==='audio'&&item.enabled))).catch(error=>controlWindow?.webContents.send('desktop:error',`音频初始化失败：${error.message}`));
   void widgetWindows.restore();
   tray = new Tray(path.join(__dirname, 'tray-icon.png'));
   tray.setToolTip(`桌屿 · DeskIsland ${app.getVersion()}`);
@@ -211,7 +228,12 @@ if (primaryInstance) app.whenReady().then(() => {
 });
 
 app.on('activate', () => createControlWindow());
-app.on('before-quit', () => {
+app.on('before-quit', event => {
+  if(audioService&&!audioService.closed) {
+    event.preventDefault();
+    if(!quitPending){quitPending=true;void audioService.shutdown().catch(error=>console.error('录音退出保存失败，临时文件已保留：',error)).finally(()=>app.quit());}
+    return;
+  }
   quitting = true;
   globalShortcut.unregister('Escape');
   unregisterWidgetHandlers();

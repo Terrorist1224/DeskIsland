@@ -68,13 +68,15 @@ class WidgetWindows {
       minimizable: false,
       maximizable: false,
       skipTaskbar: true,
-      focusable: ['todo','countdown'].includes(widget.typeId),
+      focusable: ['todo','countdown','audio'].includes(widget.typeId),
       show: false,
       webPreferences: {
         preload: this.preloadPath,
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
+        // Audio must repaint while the Windows volume window holds focus.
+        backgroundThrottling: widget.typeId !== 'audio',
       },
     });
     window.setAlwaysOnTop(reminder, 'floating');
@@ -92,7 +94,7 @@ class WidgetWindows {
         if(reminder) {
           if(!window.isAlwaysOnTop()) throw new Error('倒计时窗口未能置顶');
         } else {
-          const result=await this.getWindowsHost().request('system.desktop-widget',{handle:getWindowHandle(window),focusable:['todo','countdown'].includes(widget.typeId)});
+          const result=await this.getWindowsHost().request('system.desktop-widget',{handle:getWindowHandle(window),focusable:['todo','countdown','audio'].includes(widget.typeId)});
           if(!result.installed) throw new Error('Windows 没有启用桌面磁贴层级');
         }
         if(window.isDestroyed()) return;

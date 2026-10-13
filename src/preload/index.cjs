@@ -1,6 +1,17 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('deskIsland', {
+  getAudioSnapshot: () => ipcRenderer.invoke('audio:snapshot'),
+  setSystemVolume: volume => ipcRenderer.invoke('audio:volume', volume),
+  setDefaultAudioDevice: (kind,id) => ipcRenderer.invoke('audio:device',kind,id),
+  startAudioRecording: () => ipcRenderer.invoke('audio:start'),
+  stopAudioRecording: () => ipcRenderer.invoke('audio:stop'),
+  retrySaveAudioRecording: () => ipcRenderer.invoke('audio:retry-save'),
+  openAudioRecordingFolder: () => ipcRenderer.invoke('audio:open-folder'),
+  onAudioChanged: callback => {
+    const listener=(_event,state)=>callback(state);ipcRenderer.on('audio:changed',listener);
+    return ()=>ipcRenderer.removeListener('audio:changed',listener);
+  },
   countdown: (action, input) => ipcRenderer.invoke('countdown:action', action, input),
   addTodo: input => ipcRenderer.invoke('todo:add', input),
   completeTodo: id => ipcRenderer.invoke('todo:complete', id),

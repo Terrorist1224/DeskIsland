@@ -37,6 +37,14 @@ class FakeWindow extends EventEmitter {
 }
 FakeWindow.instances = [];
 
+test('audio keeps rendering when another window is focused without changing other tiles',t=>{
+  const directory=path.join(__dirname,'../.tmp/tests',`audio-rendering-${randomUUID()}`);
+  t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const {manager,store}=createHarness(directory);t.after(()=>manager.closeAll());
+  assert.equal(manager.show(store.create('audio')).options.webPreferences.backgroundThrottling,false);
+  assert.equal(manager.show(store.create('weather')).options.webPreferences.backgroundThrottling,true);
+});
+
 test('countdown expiry replaces the desktop HWND with a pinned window and acknowledgment restores desktop', async t => {
   const directory=path.join(__dirname,'../.tmp/tests',`countdown-layer-${randomUUID()}`);
   t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));

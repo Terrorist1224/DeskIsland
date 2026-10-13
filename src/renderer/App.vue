@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue';
 import { widgetCatalog, getWidgetDefinition } from '../shared/catalog';
-import type { MediaSnapshot, WeatherLocation, WidgetInstance, WidgetType, WidgetVariant } from '../shared/contracts';
+import type { AudioSnapshot, MediaSnapshot, WeatherLocation, WidgetInstance, WidgetType, WidgetVariant } from '../shared/contracts';
 import MusicTile from './components/MusicTile.vue';
+import AudioTile from './components/audio/AudioTile.vue';
 import CountdownTile from './components/countdown/CountdownTile.vue';
 import TodoTile from './components/todo/TodoTile.vue';
 import type { TodoItem } from '../shared/contracts';
@@ -18,6 +19,8 @@ const startup = ref({ supported: false, enabled: false });
 const editMode = ref(false);
 const busy = ref(false);
 const errorMessage = ref('');
+const audioRecording = ref<AudioSnapshot['recording']>({status:'idle',elapsedMs:0});
+let removeAudioListener:(()=>void)|undefined;
 const weatherEnabled = ref(true);
 const savingLocations = ref<Record<string, boolean>>({});
 const weatherWidgets = computed(() => widgets.value.filter(item => item.typeId === 'weather'));
@@ -128,6 +131,7 @@ async function saveCredentials() {
   });
 }
 onMounted(() => {
+  removeAudioListener=bridge.onAudioChanged?.(state=>{audioRecording.value=state.recording;});
   removeWeatherListener=bridge.onWeatherConfigurationRequest(async(id)=>{
     settingsPage.value=false;selectedType.value='weather';await focusWeather(id);
   });
@@ -135,12 +139,13 @@ onMounted(() => {
   removeEditListener = bridge.onEditModeChange(enabled => { editMode.value = enabled; });
   void run(async () => {
     appVersion.value = (await bridge.getAppInfo()).version;
+    if(bridge.getAudioSnapshot) audioRecording.value=(await bridge.getAudioSnapshot()).recording;
     await refresh(); editMode.value = await bridge.getEditMode();
     credentialStatus.value = await bridge.getWeatherCredentialsStatus();
     apiHost.value = credentialStatus.value.host;
   });
 });
-onBeforeUnmount(() => {removeEditListener?.();removeWeatherListener?.();removeErrorListener?.();});
+onBeforeUnmount(() => {removeAudioListener?.();removeEditListener?.();removeWeatherListener?.();removeErrorListener?.();});
 </script>
 
 <template>
@@ -211,6 +216,7 @@ onBeforeUnmount(() => {removeEditListener?.();removeWeatherListener?.();removeEr
                 <MusicTile :wide="variant.id === 'wide'" preview :media="previewMedia" lyric="让这一刻，慢一点经过" :position="840_000_000" />
               </div>
               <div v-else-if="selectedType === 'countdown'" class="preview-countdown"><CountdownTile preview /></div>
+              <div v-else-if="selectedType === 'audio'" class="preview-countdown preview-audio"><AudioTile preview /></div>
               <div v-else-if="selectedType === 'todo'" class="preview-todo"><TodoTile :items="previewTodos" preview /></div>
               <div v-else class="preview-weather">
                 <div>杭州 · 示例<WeatherIcon :code="2" condition="晴间多云" /></div><strong>24°</strong><p>晴间多云</p><small>最高 26°　最低 18°<br>天气数据为预览示例</small>
@@ -222,6 +228,8 @@ onBeforeUnmount(() => {removeEditListener?.();removeWeatherListener?.();removeEr
         </div>
         <p v-if="!settingsPage && selectedType === 'music' && !currentWidget" class="empty">打开侧边栏开关后可设置磁贴。</p>
         <p v-if="!settingsPage && selectedType === 'countdown'" class="empty">打开开关显示倒计时。休眠和锁屏期间继续计时，恢复后提醒；退出程序或关闭磁贴会取消计时。</p>
+        <p v-if="!settingsPage && selectedType === 'audio'" class="empty">切换系统默认设备，保留软件自己的设备选择。录音包含系统声音和默认通信麦克风；关闭磁贴开关会停止录音。取消保存会自动存到桌面。</p>
+        <p v-if="!settingsPage && selectedType === 'audio' && audioRecording.status === 'error'" class="error" role="alert">{{ audioRecording.message }} <button type="button" :disabled="busy" @click="run(() => bridge.retrySaveAudioRecording())">重试保存录音</button></p>
         <p v-if="!settingsPage && selectedType === 'todo'" class="empty">打开侧边栏开关显示待办；点击桌面磁贴右下角＋添加事项。提醒仅在程序运行且磁贴开启时触发，错过不补提醒。</p>
       </div>
     </div>
@@ -230,6 +238,7 @@ onBeforeUnmount(() => {removeEditListener?.();removeWeatherListener?.();removeEr
 
 <style>
 .preview-countdown{width:240px;height:240px;border:1px solid #ffffff40;border-radius:20px;background:rgba(8,10,14,.34);overflow:hidden}
+.preview-audio{height:192px}
 .preview-todo{width:240px;height:240px;border-radius:20px;overflow:hidden}
 .settings-button{position:absolute;bottom:24px;left:14px;width:132px}.settings-button.selected{background:#ffffff14;font-weight:600}.general-settings{padding:20px;border:1px solid #ffffff26;border-radius:12px;background:#ffffff08}.startup-setting{display:flex;align-items:center;gap:10px}.general-settings p{font-size:12px;line-height:1.7;color:#e6e2e6}.widget-switch:focus-visible{outline:2px solid #eee9ef;outline-offset:3px}
 *{box-sizing:border-box}html,body,#app{height:100%;margin:0;background:transparent}body{font-family:"Segoe UI","Microsoft YaHei UI",sans-serif;color:#fafafa;font-size:14px;color-scheme:dark}button,input{font:inherit}button{cursor:pointer;color:inherit}button:disabled{cursor:default}button:focus-visible,input:focus-visible{outline:2px solid #eee9ef;outline-offset:3px}

@@ -3,7 +3,7 @@ const widgetTypes = new Set(require('../shared/widget-catalog.json').map((item) 
 const mediaCommands = new Set(['toggle', 'next', 'previous', 'seek']);
 const { listWeatherRegions, getWeatherRegionPath } = require('./weather-regions.cjs');
 
-function registerHandlers({ store, getWindowsHost, weatherService, weatherSettings, openWeatherLink, lyricsService, widgetWindows, countdown, todoReminders, reminderWindow, getInitialOrigin, getControlWindow, getAppInfo, getStartupSettings, setStartupSettings }) {
+function registerHandlers({ store, getWindowsHost, weatherService, weatherSettings, openWeatherLink, lyricsService, widgetWindows, countdown, todoReminders, reminderWindow, audioService, openAudioFolder, getInitialOrigin, getControlWindow, getAppInfo, getStartupSettings, setStartupSettings }) {
   const savingLocations = new Set();
   ipcMain.handle('countdown:action', (event, action, input = {}) => {
     const entry = [...widgetWindows.windows].find(([,window]) => !window.isDestroyed() && window.webContents === event.sender);
@@ -42,6 +42,19 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
   function requireControl(event) {
     if (event.sender !== getControlWindow()?.webContents) throw new Error('此操作只能在主窗口执行');
   }
+  function requireAudio(event, mutate=false) {
+    if(!mutate && event.sender===getControlWindow()?.webContents) return;
+    const entry=[...widgetWindows.windows].find(([,window])=>!window.isDestroyed()&&window.webContents===event.sender);
+    const widget=entry&&store.list().find(item=>item.id===entry[0]);
+    if(!widget||widget.typeId!=='audio'||!widget.enabled||(mutate&&widgetWindows.editMode)) throw new Error('此操作只能由开启的音频磁贴执行');
+  }
+  ipcMain.handle('audio:snapshot',event=>{requireAudio(event);return audioService.refresh();});
+  ipcMain.handle('audio:volume',(event,volume)=>{requireAudio(event,true);return audioService.setVolume(volume);});
+  ipcMain.handle('audio:device',(event,kind,id)=>{requireAudio(event,true);return audioService.setDefault(kind,id);});
+  ipcMain.handle('audio:start',event=>{requireAudio(event,true);return audioService.start();});
+  ipcMain.handle('audio:stop',event=>{requireAudio(event,true);return audioService.stop();});
+  ipcMain.handle('audio:retry-save',event=>{requireAudio(event);return audioService.retry();});
+  ipcMain.handle('audio:open-folder',event=>{requireAudio(event);return openAudioFolder();});
   function requireTodo(event) {
     const entry=[...widgetWindows.windows].find(([,window])=>!window.isDestroyed() && window.webContents===event.sender);
     const widget=entry && store.list().find(item=>item.id===entry[0]);
@@ -86,6 +99,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
     requireControl(event);
     if (!widgetTypes.has(typeId)) throw new TypeError('Invalid widget type');
     const widget = store.create(typeId, getInitialOrigin?.(), variantId, enabled);
+    if(typeId==='audio') void audioService.setEnabled(enabled).catch(error=>getControlWindow()?.webContents.send('desktop:error',error.message));
     widgetWindows?.show(widget);
     return widget;
   });
@@ -94,6 +108,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
     if (typeof id !== 'string' || id.length > 64) throw new TypeError('Invalid widget id');
     if(store.list().find(item=>item.id===id)?.typeId==='countdown') countdown.cancel(id);
     store.remove(id);
+    if(audioService && audioService.enabled && !store.list().some(item=>item.typeId==='audio'&&item.enabled)) void audioService.setEnabled(false).catch(error=>getControlWindow()?.webContents.send('desktop:error',error.message));
     widgetWindows?.remove(id);
     syncTodo(id);
   });
@@ -107,6 +122,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
     requireControl(event);
     if (typeof id !== 'string' || id.length > 64 || typeof enabled !== 'boolean') throw new TypeError('Invalid widget enabled state');
     const widget = store.setEnabled(id, enabled);
+    if(widget.typeId==='audio') void audioService.setEnabled(enabled).catch(error=>getControlWindow()?.webContents.send('desktop:error',error.message));
     if(widget.typeId==='countdown' && !enabled) countdown.cancel(id);
     if (enabled) widgetWindows.show(widget);
     else widgetWindows.remove(id);
@@ -238,6 +254,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
 }
 
 function unregisterWidgetHandlers() {
+  for(const channel of ['audio:snapshot','audio:volume','audio:device','audio:start','audio:stop','audio:retry-save','audio:open-folder']) ipcMain.removeHandler(channel);
   for(const channel of ['countdown:action','todo:add','todo:complete','todo:move','todo-reminder:get','todo-reminder:dismiss','todo-reminder:preview']) ipcMain.removeHandler(channel);
   for (const channel of ['app:info', 'app:get-startup', 'app:set-startup']) ipcMain.removeHandler(channel);
   for (const channel of ['weather:credentials-status', 'weather:credentials-save', 'weather:open-link']) ipcMain.removeHandler(channel);

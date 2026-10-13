@@ -1,4 +1,11 @@
-export type WidgetType = 'music' | 'weather' | 'todo' | 'countdown';
+export type WidgetType = 'music' | 'weather' | 'todo' | 'countdown' | 'audio';
+export interface AudioDevice { id: string; name: string }
+export interface AudioSnapshot {
+  volume: number | null; inputs: AudioDevice[]; outputs: AudioDevice[];
+  volumeRevision?: number;
+  inputId: string | null; outputId: string | null; error: string;
+  recording: { status: 'idle'|'starting'|'recording'|'processing'|'saving'|'error'; elapsedMs: number; levels?: number[]; message?: string; savedPath?: string };
+}
 export type TodoColor = 'yellow' | 'green' | 'blue' | 'orange' | 'pink';
 export interface TodoInput { text: string; color: TodoColor; remindAt: number | null }
 export interface CountdownPreset { id: string; name: string; seconds: number }
@@ -95,6 +102,14 @@ export interface WeatherSnapshot {
 }
 
 export interface DesktopIslandBridge {
+  getAudioSnapshot(): Promise<AudioSnapshot>;
+  setSystemVolume(volume: number): Promise<AudioSnapshot>;
+  setDefaultAudioDevice(kind: 'input'|'output', id: string): Promise<AudioSnapshot>;
+  startAudioRecording(): Promise<AudioSnapshot>;
+  stopAudioRecording(): Promise<AudioSnapshot>;
+  retrySaveAudioRecording(): Promise<AudioSnapshot>;
+  openAudioRecordingFolder(): Promise<void>;
+  onAudioChanged(callback: (state: AudioSnapshot)=>void): ()=>void;
   countdown(action: 'get' | 'select' | 'add' | 'delete' | 'start' | 'pause' | 'resume' | 'cancel' | 'acknowledge', input?: { seconds?: number; name?: string; id?: string }): Promise<{ state: CountdownState; seconds: number; presets: CountdownPreset[] }>;
   addTodo(input: TodoInput): Promise<TodoItem[]>;
   completeTodo(id: string): Promise<TodoItem[]>;

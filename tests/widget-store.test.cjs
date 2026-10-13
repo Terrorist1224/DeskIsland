@@ -5,6 +5,21 @@ const { randomUUID } = require('node:crypto');
 const test = require('node:test');
 const { WidgetStore } = require('../src/main/widget-store.cjs');
 
+test('previous audio square bounds load as compact bounds without changing identity, settings or the source file',t=>{
+  const directory=path.join(__dirname,'../.tmp/tests',`audio-size-${randomUUID()}`);fs.mkdirSync(directory,{recursive:true});
+  t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const store=new WidgetStore(directory),widget=store.create('audio');assert.equal(widget.width,240);assert.equal(widget.height,192);
+  const file=path.join(directory,'deskisland.json'),saved=JSON.parse(fs.readFileSync(file,'utf8'));
+  saved.widgets[0].height=240;const original=JSON.stringify(saved);fs.writeFileSync(file,original);
+  const migrated=new WidgetStore(directory).list()[0];assert.deepEqual(migrated,{...widget,height:192});assert.equal(fs.readFileSync(file,'utf8'),original);
+  saved.widgets[0].height=160;fs.writeFileSync(file,JSON.stringify(saved));
+  assert.deepEqual(new WidgetStore(directory).list()[0],widget);
+  saved.widgets[0].width=480;saved.widgets[0].height=480;fs.writeFileSync(file,JSON.stringify(saved));
+  assert.equal(new WidgetStore(directory).list()[0].height,384);
+  saved.widgets[0].width=241;saved.widgets[0].height=241;fs.writeFileSync(file,JSON.stringify(saved));
+  assert.throws(()=>new WidgetStore(directory),/Invalid persisted widget size/);
+});
+
 test('multiple weather rows keep independent locations and switches under a persisted master switch', (t) => {
   const directory = path.join(__dirname, '../.tmp/tests', `weather-multiple-${randomUUID()}`);
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));

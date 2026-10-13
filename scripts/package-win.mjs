@@ -24,7 +24,10 @@ function run(command, args) {
 
 if (process.platform !== 'win32' || process.arch !== 'x64') throw new Error('Packaging requires Windows x64');
 await fs.access(compiler);
-for (const script of ['test', 'typecheck', 'build']) {
+await run(process.execPath, [path.join(root, 'scripts', 'prepare-audio-runtime.mjs')]);
+// Serial test files avoid overlapping native compilation and antivirus file locks on Windows.
+await run(process.execPath, [process.env.npm_execpath, 'run', 'test', '--', '--test-concurrency=1']);
+for (const script of ['typecheck', 'build']) {
   await run(process.execPath, [process.env.npm_execpath, 'run', script]);
 }
 // Rebuild only the dedicated staging directory; never copy workspace data or dependencies.
@@ -40,7 +43,15 @@ for (const layer of ['main', 'preload', 'shared']) {
 }
 await fs.cp(path.join(root, 'dist', 'renderer'), path.join(appDirectory, 'dist', 'renderer'), { recursive: true });
 await fs.writeFile(path.join(appDirectory, 'package.json'), JSON.stringify({ name: packageJson.name, productName: packageJson.productName, version: packageJson.version, main: packageJson.main }, null, 2));
-for (const name of ['README.md', 'CHANGELOG.md']) await fs.copyFile(path.join(root, name), path.join(output, name));
+const audioRuntime = path.join(appDirectory, 'audio-runtime');
+for (const file of ['ffmpeg.exe', 'naudio.core/lib/netstandard2.0/NAudio.Core.dll', 'naudio.wasapi/lib/netstandard2.0/NAudio.Wasapi.dll']) {
+  const destination=path.join(audioRuntime,file);
+  await fs.mkdir(path.dirname(destination),{recursive:true});
+  await fs.copyFile(path.join(root,'.tmp','audio-runtime',file),destination);
+}
+await fs.cp(path.join(root,'licenses'),path.join(audioRuntime,'licenses'),{recursive:true});
+for (const name of ['README.md', 'CHANGELOG.md', 'THIRD_PARTY_NOTICES.md']) await fs.copyFile(path.join(root, name), path.join(output, name));
+await fs.copyFile(path.join(root,'THIRD_PARTY_NOTICES.md'),path.join(audioRuntime,'THIRD_PARTY_NOTICES.md'));
 // Windows ICO supports a PNG image payload; reuse the existing artwork without raster editing.
 const png = await fs.readFile(path.join(root, 'src', 'main', 'tray-icon.png'));
 const icon = Buffer.alloc(22);
@@ -52,6 +63,9 @@ await fs.writeFile(path.join(output, 'DeskIsland.ico'), Buffer.concat([icon, png
 const files = await fs.readdir(output, { recursive: true });
 assert.ok(files.includes('DeskIsland.exe'));
 assert.ok(files.includes(path.join('resources', 'app', 'dist', 'renderer', 'index.html')));
+for(const file of ['ffmpeg.exe','naudio.core/lib/netstandard2.0/NAudio.Core.dll','naudio.wasapi/lib/netstandard2.0/NAudio.Wasapi.dll','licenses/GPL-3.0.txt','licenses/FFmpeg-SOURCES.md']) {
+  assert.ok(files.includes(path.join('resources','app','audio-runtime',file)),'Audio runtime must be included: '+file);
+}
 assert.ok(!files.some(file => /(^|[\\/])(data|node_modules|\.tmp|qweather-user\.json|deskisland\.json)([\\/]|$)/i.test(file)), 'Personal data must not enter the installer');
 assert.ok(!(await fs.readFile(path.join(appDirectory, 'dist', 'renderer', 'index.html'), 'utf8')).includes('src="/assets/'), 'Renderer assets must use relative paths');
 await fs.writeFile(path.join(temp, 'manifest.json'), JSON.stringify({ version: packageJson.version, files: files.sort() }, null, 2));

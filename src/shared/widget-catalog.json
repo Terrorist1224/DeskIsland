@@ -28,6 +28,15 @@
     "defaultSettings": { "items": [] }
   },
   {
+    "typeId": "audio",
+    "title": "多媒体",
+    "defaultSize": { "width": 240, "height": 192 },
+    "variants": [
+      { "id": "standard", "title": "音量优先", "size": { "width": 240, "height": 192, "minimumWidth": 240 } }
+    ],
+    "defaultSettings": {}
+  },
+  {
     "typeId": "countdown",
     "title": "倒计时",
     "defaultSize": { "width": 240, "height": 240 },

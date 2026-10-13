@@ -211,6 +211,8 @@ class WidgetStore {
       if (!widget.variantId) widget.variantId = widget.typeId === 'music' ? 'wide' : 'standard';
       const variant = definition.variants.find((item) => item.id === widget.variantId);
       if (!variant) throw new Error('Invalid persisted widget variant');
+      // Convert previous valid audio sizes; preserve identity, position and settings.
+      if(widget.typeId==='audio' && ((widget.width===widget.height && Number.isSafeInteger(widget.width) && widget.width>=240 && widget.width<=480 && widget.width%GRID_SIZE===0) || validWidgetSize(widget,{width:240,height:160,minimumWidth:240}))) Object.assign(widget,sizeAtScale(variant.size,widget.width/240));
       const valid=validWidgetSize(widget,variant.size);
       if(!valid && parsed.schemaVersion===schemaVersion) throw new Error('Invalid persisted widget size');
       if(!valid) Object.assign(widget,variant.size);
