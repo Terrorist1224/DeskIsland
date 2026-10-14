@@ -37,6 +37,24 @@ class FakeWindow extends EventEmitter {
 }
 FakeWindow.instances = [];
 
+test('late page-load callbacks after tile destruction do not resize, send or attach a desktop HWND', async t => {
+  const directory=path.join(__dirname,'../.tmp/tests',`late-load-${randomUUID()}`);
+  t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const {manager,store}=createHarness(directory);t.after(()=>manager.closeAll());
+  class LoadingWindow extends FakeWindow {
+    loadFile() { return Promise.resolve(); }
+  }
+  manager.BrowserWindow=LoadingWindow;
+  const widget=store.create('note'),window=manager.show(widget),contents=window.webContents;
+  const callbacks=contents.listeners('did-finish-load');
+  manager.remove(widget.id);
+  window.setBounds=()=>{throw Error('Destroyed window resized');};
+  contents.send=()=>{throw Error('Destroyed WebContents used');};
+  let installs=0;manager.getWindowsHost=()=>({request:async()=>{installs++;return {installed:true};}});
+  for (const callback of callbacks) await callback();
+  assert.equal(installs,0);assert.equal(manager.readyWindows.size,0);
+});
+
 test('audio keeps rendering when another window is focused without changing other tiles',t=>{
   const directory=path.join(__dirname,'../.tmp/tests',`audio-rendering-${randomUUID()}`);
   t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));

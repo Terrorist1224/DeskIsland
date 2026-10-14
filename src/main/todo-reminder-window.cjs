@@ -80,6 +80,13 @@ class TodoReminderWindow {
     else this.window?.webContents.send('todo-reminder:items', this.items);
   }
 
+  removeCountdown(id) {
+    if (this.isPreview) return;
+    this.items = this.items.filter(item => item.id !== `countdown:${id}` || item.source !== 'countdown');
+    if (!this.items.length) this.dismiss();
+    else this.window?.webContents.send('todo-reminder:items', this.items);
+  }
+
   dismiss() {
     if (this.window && !this.window.isDestroyed()) this.window.destroy();
     this.window = null;

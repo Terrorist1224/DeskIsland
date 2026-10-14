@@ -45,6 +45,14 @@ test('countdown and todo share one overlay; todo sync cannot erase countdown eve
   f.controller.dismiss();assert.equal(f.controller.items.length,0);
 });
 
+test('acknowledging or disabling countdown removes only its overlay entry and preserves todo or preview', t => {
+  const f=fixture(t), todo=f.item('todo:1'), countdown={...f.item('countdown:1'),source:'countdown'};
+  f.controller.show([todo]);f.controller.show([countdown]);
+  f.controller.removeCountdown('1');assert.deepEqual(f.controller.items,[todo]);assert.equal(FakeWindow.instances.length,1);
+  f.controller.sync([]);f.controller.show([countdown]);f.controller.removeCountdown('1');assert.equal(f.controller.window,null);
+  f.controller.preview();f.controller.removeCountdown('1');assert.equal(f.controller.items[0].id,'preview');
+});
+
 test('reminder uses full pointer-display bounds rather than work area, accepts Escape, and recreates after dismissal', t => {
   const f=fixture(t);f.controller.show([f.item('1'),f.item('2')]);
   const window=FakeWindow.instances[0];

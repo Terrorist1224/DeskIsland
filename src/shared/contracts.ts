@@ -1,4 +1,4 @@
-export type WidgetType = 'music' | 'weather' | 'todo' | 'countdown' | 'audio' | 'desktop-search';
+export type WidgetType = 'music' | 'weather' | 'todo' | 'countdown' | 'audio' | 'desktop-search' | 'note';
 export interface ControlState {
   selectedType: WidgetType; settingsPage: boolean; focusedWeatherId: string;
   apiHost: string; apiKey: string; weatherCodes: Record<string,string[]>;
@@ -12,10 +12,12 @@ export interface AudioSnapshot {
   recording: { status: 'idle'|'starting'|'recording'|'processing'|'saving'|'error'; elapsedMs: number; levels?: number[]; message?: string; savedPath?: string };
 }
 export type TodoColor = 'yellow' | 'green' | 'blue' | 'orange' | 'pink';
+export interface NoteInput { text: string; color: TodoColor }
+export interface NoteItem extends NoteInput { id: string }
 export interface TodoInput { text: string; color: TodoColor; remindAt: number | null }
 export interface CountdownPreset { id: string; name: string; seconds: number }
 export interface CountdownState { status: 'idle' | 'running' | 'paused' | 'finished'; seconds: number; name: string; remainingMs: number; deadline: number | null; color: string }
-export interface ReminderItem extends TodoItem { source?: 'todo' | 'countdown' }
+export interface ReminderItem extends TodoItem { source?: 'todo' | 'countdown'; countdownName?: string }
 export interface TodoItem extends TodoInput { id: string; reminderState: 'pending' | 'notified' | 'missed' | null }
 export type WidgetVariant = 'square' | 'wide' | 'standard';
 export type EditGesture = 'move' | 'nw' | 'ne' | 'sw' | 'se';
@@ -109,6 +111,8 @@ export interface WeatherSnapshot {
 }
 
 export interface DesktopIslandBridge {
+  openNote(id?: string): Promise<void>;
+  moveNote(id: string, beforeId: string | null): Promise<NoteItem[]>;
   openDesktopSearch(): Promise<void>;
   listDesktopSearchItems(): Promise<{ items: DesktopSearchItem[]; warnings: string[]; iconSize: number }>;
   resizeDesktopSearch(height: number): Promise<void>;
@@ -174,6 +178,17 @@ export interface DesktopIslandBridge {
 declare global {
   interface Window {
     deskIsland: DesktopIslandBridge;
+    noteEditor: {
+      get(): Promise<NoteItem>;
+      update(input: NoteInput): Promise<void>;
+      save(input: NoteInput, token?: number): Promise<void>;
+      close(input: NoteInput): Promise<void>;
+      delete(): Promise<void>;
+      onSaveRequest(callback: (token: number) => void): () => void;
+      onLock(callback: (locked: boolean) => void): () => void;
+      onError(callback: (message: string) => void): () => void;
+      onSaved(callback: () => void): () => void;
+    };
     todoReminder: {
       getItems(): Promise<ReminderItem[]>;
       dismiss(): Promise<void>;

@@ -16,8 +16,9 @@ test('countdown IPC validates sender, presets and duration; switch/removal cance
   const store=new WidgetStore(directory),widget=store.create('countdown');
   const sender={send:()=>{}},control={};
   const widgetWindows={windows:new Map([[widget.id,{webContents:sender,isDestroyed:()=>false}]]),editMode:false,remove:()=>{},show:()=>{},setCountdownReminder:async()=>{}};
+  const removed=[];
   const countdown=new Countdown({onDue:()=>{},onChange:()=>{},onError:()=>{}});
-  registerHandlers({store,widgetWindows,countdown,getControlWindow:()=>({webContents:control}),reminderWindow:{sync:()=>{}}});
+  registerHandlers({store,widgetWindows,countdown,getControlWindow:()=>({webContents:control}),reminderWindow:{sync:()=>{},removeCountdown:id=>removed.push(id)}});
   const call=(action,input)=>handlers.get('countdown:action')({sender},action,input);
   assert.throws(()=>handlers.get('countdown:action')({sender:control},'start',{seconds:3}));
   assert.throws(()=>call('start',{seconds:0}));assert.throws(()=>call('add',{name:' ',seconds:3}));
@@ -31,6 +32,6 @@ test('countdown IPC validates sender, presets and duration; switch/removal cance
   assert.throws(()=>call('start',{seconds:3}));store.setEnabled(widget.id,true);
   call('start',{seconds:1});countdown.states.get(widget.id).deadline=0;countdown.tick();
   assert.equal(call('get').state.status,'finished');assert.throws(()=>call('cancel'));
-  assert.equal((await call('acknowledge')).state.status,'idle');
-  call('start',{seconds:3});handlers.get('widgets:remove')({sender:control},widget.id);assert.equal(countdown.get(widget.id).status,'idle');
+  assert.equal((await call('acknowledge')).state.status,'idle');assert.deepEqual(removed,[widget.id,widget.id]);
+  call('start',{seconds:3});handlers.get('widgets:remove')({sender:control},widget.id);assert.equal(countdown.get(widget.id).status,'idle');assert.deepEqual(removed,[widget.id,widget.id,widget.id]);
 });

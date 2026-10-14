@@ -37,6 +37,15 @@
     "defaultSettings": { "items": [] }
   },
   {
+    "typeId": "note",
+    "title": "便签",
+    "defaultSize": { "width": 240, "height": 240 },
+    "variants": [
+      { "id": "standard", "title": "便签列表", "size": { "width": 240, "height": 240, "minimumWidth": 160, "minimumHeight": 160, "maximumWidth": 480, "maximumHeight": 480, "freeResize": true } }
+    ],
+    "defaultSettings": { "items": [] }
+  },
+  {
     "typeId": "audio",
     "title": "多媒体",
     "defaultSize": { "width": 240, "height": 160 },

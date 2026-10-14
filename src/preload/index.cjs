@@ -1,6 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('deskIsland', {
+  openNote: id => ipcRenderer.invoke('note:open', id),
+  moveNote: (id, beforeId) => ipcRenderer.invoke('note:move', id, beforeId),
   openDesktopSearch: () => ipcRenderer.invoke('desktop-search:show'),
   listDesktopSearchItems: () => ipcRenderer.invoke('desktop-search:list'),
   resizeDesktopSearch: height => ipcRenderer.invoke('desktop-search:resize', height),

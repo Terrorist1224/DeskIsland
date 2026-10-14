@@ -13,4 +13,12 @@ function validateSettings(settings) {
     validateDuration(preset.seconds);
   }
 }
-module.exports = { validateDuration, validateSettings };
+function countdownReminder(id, state, now = Date.now()) {
+  return {
+    id: `countdown:${id}`, source: 'countdown', countdownName: state.name,
+    text: state.name ? `${state.name} 结束` : '倒计时结束',
+    color: require('./todo-colors.json').find(color => color.value === state.color)?.id ?? 'blue',
+    remindAt: now, reminderState: 'notified',
+  };
+}
+module.exports = { validateDuration, validateSettings, countdownReminder };

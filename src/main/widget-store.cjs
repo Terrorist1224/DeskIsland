@@ -6,6 +6,7 @@ const { GRID_SIZE, sizeAtScale, validWidgetSize } = require('../shared/grid.cjs'
 const { validateTodoInput, validateTodoItems } = require('../shared/todo.cjs');
 
 const { validateSettings: validateCountdownSettings } = require('../shared/countdown.cjs');
+const { validateNoteInput, validateNoteItems, validateNoteId } = require('../shared/note.cjs');
 const schemaVersion = 2;
 const definitions = new Map(catalog.map((item) => [item.typeId, item]));
 
@@ -130,7 +131,7 @@ class WidgetStore {
     const widget = this.state.widgets.find((item) => item.id === id);
     if (!widget) return false;
     const definition = definitions.get(widget.typeId);
-    if(widget.typeId==='todo') throw new Error('请使用待办专用操作');
+    if(['todo','note'].includes(widget.typeId)) throw new Error('请使用对应磁贴的专用操作');
     const updates = Object.entries(patch).map(([key, value]) => {
       if (!Object.hasOwn(definition.defaultSettings, key)) throw new TypeError(`Unsupported widget setting: ${key}`);
       return [key, structuredClone(value)];
@@ -194,6 +195,45 @@ class WidgetStore {
     return this.#saveTodos(widget,widget.settings.items.map(item=>states.has(item.id)?{...item,reminderState:states.get(item.id)}:item));
   }
 
+  #notes(id) {
+    const widget = this.state.widgets.find(widget => widget.id === id && widget.typeId === 'note');
+    if (!widget) throw new Error('找不到便签磁贴');
+    return widget;
+  }
+
+  #saveNotes(widget, items) {
+    validateNoteItems(items);
+    const previous = widget.settings.items;
+    widget.settings.items = items;
+    try { this.#write(); } catch (error) { widget.settings.items = previous;throw error; }
+    return structuredClone(items);
+  }
+
+  saveNote(id, note) {
+    validateNoteId(note?.id);
+    const input = validateNoteInput(note), widget = this.#notes(id);
+    const exists = widget.settings.items.some(item => item.id === note.id);
+    if (!exists && !input.text.trim()) return structuredClone(widget.settings.items);
+    const value = { id: note.id, ...input };
+    return this.#saveNotes(widget, exists ? widget.settings.items.map(item => item.id === note.id ? value : item) : [...widget.settings.items, value]);
+  }
+
+  deleteNote(id, noteId) {
+    validateNoteId(noteId);
+    const widget = this.#notes(id);
+    return this.#saveNotes(widget, widget.settings.items.filter(item => item.id !== noteId));
+  }
+
+  moveNote(id, noteId, beforeId) {
+    validateNoteId(noteId);if (beforeId !== null) validateNoteId(beforeId);
+    const widget = this.#notes(id), item = widget.settings.items.find(item => item.id === noteId);
+    if (!item || (beforeId !== null && !widget.settings.items.some(item => item.id === beforeId))) throw new Error('便签列表已变更，请重试');
+    if (noteId === beforeId) return structuredClone(widget.settings.items);
+    const items = widget.settings.items.filter(item => item.id !== noteId);
+    items.splice(beforeId === null ? items.length : items.findIndex(item => item.id === beforeId), 0, item);
+    return this.#saveNotes(widget, items);
+  }
+
   #read() {
     if (!fs.existsSync(this.filePath)) return { schemaVersion, weatherEnabled: true, widgets: [] };
     const parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8'));
@@ -224,6 +264,7 @@ class WidgetStore {
       if(!valid) Object.assign(widget,variant.size);
       if(!Number.isSafeInteger(widget.x) || !Number.isSafeInteger(widget.y)) throw new Error('Invalid persisted widget position');
       if(widget.typeId==='todo') validateTodoItems(widget.settings?.items);
+      if(widget.typeId==='note') validateNoteItems(widget.settings?.items);
       if(widget.typeId==='countdown') validateCountdownSettings(widget.settings);
     }
     parsed.schemaVersion=schemaVersion;

@@ -7,6 +7,7 @@ import AudioTile from './components/audio/AudioTile.vue';
 import SearchTile from './components/desktop-search/SearchTile.vue';
 import CountdownTile from './components/countdown/CountdownTile.vue';
 import TodoTile from './components/todo/TodoTile.vue';
+import NoteTile from './components/note/NoteTile.vue';
 import type { TodoItem } from '../shared/contracts';
 import WeatherIcon from './components/WeatherIcon.vue';
 import WeatherLocationSettings from './components/WeatherLocationSettings.vue';
@@ -185,7 +186,7 @@ onBeforeUnmount(() => {removeClosingListener?.();removeAudioListener?.();removeE
           <div><h1>{{ settingsPage ? '设置' : definition.title }}</h1></div>
           <button type="button" class="edit-button" :class="{ active: editMode }" :aria-pressed="editMode" :disabled="busy" @click="run(async () => { editMode = await bridge.setEditMode(!editMode); })">{{ editMode ? '完成编辑' : '编辑桌面' }}</button>
         </div>
-        <p v-if="editMode" class="edit-hint" role="status">拖动磁贴任意区域，四角缩放（待办宽高独立），松手按网格对齐。编辑时内部控件暂停操作，按 Esc 或「完成编辑」锁定布局。</p>
+        <p v-if="editMode" class="edit-hint" role="status">拖动磁贴任意区域，四角缩放（待办、便签宽高独立），松手按网格对齐。编辑时内部控件暂停操作，按 Esc 或「完成编辑」锁定布局。</p>
         <p v-if="errorMessage" class="error" role="alert">{{ errorMessage }}</p>
         <section v-if="settingsPage" class="general-settings" aria-label="程序设置">
           <div class="startup-setting"><span>开机自启</span><button type="button" class="widget-switch" role="switch" aria-label="开机自启" :aria-checked="startup.enabled" :disabled="busy || !startup.supported" @click="changeStartup"><span></span></button></div>
@@ -232,6 +233,7 @@ onBeforeUnmount(() => {removeClosingListener?.();removeAudioListener?.();removeE
               <div v-else-if="selectedType === 'desktop-search'" class="preview-search"><SearchTile preview /></div>
               <div v-else-if="selectedType === 'countdown'" class="preview-countdown"><CountdownTile preview /></div>
               <div v-else-if="selectedType === 'audio'" class="preview-countdown preview-audio"><AudioTile preview /></div>
+              <div v-else-if="selectedType === 'note'" class="preview-todo"><NoteTile :items="[{id:'preview-note',text:'旅行清单 · 预览示例\n车票、行李和路线',color:'yellow'}]" preview /></div>
               <div v-else-if="selectedType === 'todo'" class="preview-todo"><TodoTile :items="previewTodos" preview /></div>
               <div v-else class="preview-weather">
                 <div>杭州 · 示例<WeatherIcon :code="2" condition="晴间多云" /></div><strong>24°</strong><p>晴间多云</p><small>最高 26°　最低 18°<br>天气数据为预览示例</small>
@@ -246,6 +248,7 @@ onBeforeUnmount(() => {removeClosingListener?.();removeAudioListener?.();removeE
         <p v-if="!settingsPage && selectedType === 'countdown'" class="empty">打开开关显示倒计时。休眠和锁屏期间继续计时，恢复后提醒；退出程序或关闭磁贴会取消计时。</p>
         <p v-if="!settingsPage && selectedType === 'audio'" class="empty">切换系统默认设备，保留软件自己的设备选择。录音包含系统声音和默认通信麦克风；关闭磁贴开关会停止录音。取消保存会自动存到桌面。</p>
         <p v-if="!settingsPage && selectedType === 'audio' && audioRecording.status === 'error'" class="error" role="alert">{{ audioRecording.message }} <button type="button" :disabled="busy" @click="run(() => bridge.retrySaveAudioRecording())">重试保存录音</button></p>
+        <p v-if="!settingsPage && selectedType === 'note'" class="empty">点击便签磁贴右下角＋打开新便签，首行为标题；编辑自动保存，点 × 保存并关闭。关闭磁贴开关不关闭已打开的便签。</p>
         <p v-if="!settingsPage && selectedType === 'todo'" class="empty">打开侧边栏开关显示待办；点击桌面磁贴右下角＋添加事项。提醒仅在程序运行且磁贴开启时触发，错过不补提醒。</p>
       </div>
     </div>

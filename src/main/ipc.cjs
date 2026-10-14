@@ -3,7 +3,24 @@ const widgetTypes = new Set(require('../shared/widget-catalog.json').map((item) 
 const mediaCommands = new Set(['toggle', 'next', 'previous', 'seek']);
 const { listWeatherRegions, getWeatherRegionPath } = require('./weather-regions.cjs');
 
-function registerHandlers({ store, getWindowsHost, weatherService, weatherSettings, openWeatherLink, lyricsService, widgetWindows, countdown, todoReminders, reminderWindow, desktopSearch, audioService, openAudioFolder, getInitialOrigin, getControlWindow, getControlState, closeControlWindow, openControlWindow, getAppInfo, getStartupSettings, setStartupSettings }) {
+function registerHandlers({ store, getWindowsHost, weatherService, weatherSettings, openWeatherLink, lyricsService, widgetWindows, countdown, todoReminders, reminderWindow, desktopSearch, audioService, noteWindows, openAudioFolder, getInitialOrigin, getControlWindow, getControlState, closeControlWindow, openControlWindow, getAppInfo, getStartupSettings, setStartupSettings }) {
+  function requireNote(event) {
+    const entry = [...widgetWindows.windows].find(([, window]) => !window.isDestroyed() && window.webContents === event.sender);
+    const widget = entry && store.list('note').find(widget => widget.id === entry[0]);
+    if (!widget || !widget.enabled || widgetWindows.editMode) throw new Error('此操作只能由开启的便签磁贴执行');
+    return widget.id;
+  }
+  ipcMain.handle('note:open', (event, id) => noteWindows.open(requireNote(event), id));
+  ipcMain.handle('note:move', (event, id, beforeId) => {
+    const widgetId = requireNote(event), items = store.moveNote(widgetId, id, beforeId);
+    widgetWindows.windows.get(widgetId)?.webContents.send('widget:settings');
+    return items;
+  });
+  ipcMain.handle('note:get', event => noteWindows.get(event.sender));
+  ipcMain.handle('note:update', (event, input) => noteWindows.update(event.sender, input));
+  ipcMain.handle('note:save', (event, input, token) => noteWindows.save(event.sender, input, token));
+  ipcMain.handle('note:close', (event, input) => noteWindows.close(event.sender, input));
+  ipcMain.handle('note:delete', event => noteWindows.delete(event.sender));
   const savingLocations = new Set();
   ipcMain.handle('desktop-search:show', event => {
     const entry = [...widgetWindows.windows].find(([,window]) => !window.isDestroyed() && window.webContents === event.sender);
@@ -42,7 +59,8 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
       countdown.start(id, seconds, preset?.name ?? '');
     } else if (action === 'acknowledge') {
       if(countdown.get(id).status !== 'finished') throw new Error('倒计时尚未结束');
-      return widgetWindows.setCountdownReminder(id,false).then(()=>{countdown.cancel(id);return {state:countdown.get(id),...store.list().find(item=>item.id===id).settings};});
+      reminderWindow?.removeCountdown(id);
+      countdown.cancel(id);
     } else if (['pause','resume','cancel'].includes(action)) {
       if(countdown.get(id).status === 'finished') throw new Error('请先确认倒计时结束');
       countdown[action](id);
@@ -118,9 +136,10 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
   ipcMain.handle('widgets:remove', (event, id) => {
     requireControl(event);
     if (typeof id !== 'string' || id.length > 64) throw new TypeError('Invalid widget id');
-    if(store.list().find(item=>item.id===id)?.typeId==='countdown') countdown.cancel(id);
+    if(store.list().find(item=>item.id===id)?.typeId==='countdown') { countdown.cancel(id);reminderWindow?.removeCountdown(id); }
     if(store.list().find(item=>item.id===id)?.typeId==='desktop-search') desktopSearch?.close();
     store.remove(id);
+    noteWindows?.removeWidget(id);
     if(audioService && audioService.enabled && !store.list().some(item=>item.typeId==='audio'&&item.enabled)) void audioService.setEnabled(false).catch(error=>getControlWindow()?.webContents.send('desktop:error',error.message));
     widgetWindows?.remove(id);
     syncTodo(id);
@@ -136,7 +155,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
     if (typeof id !== 'string' || id.length > 64 || typeof enabled !== 'boolean') throw new TypeError('Invalid widget enabled state');
     const widget = store.setEnabled(id, enabled);
     if(widget.typeId==='audio') void audioService.setEnabled(enabled).catch(error=>getControlWindow()?.webContents.send('desktop:error',error.message));
-    if(widget.typeId==='countdown' && !enabled) countdown.cancel(id);
+    if(widget.typeId==='countdown' && !enabled) { countdown.cancel(id);reminderWindow?.removeCountdown(id); }
     if(widget.typeId==='desktop-search' && !enabled) desktopSearch?.close();
     if (enabled) widgetWindows.show(widget);
     else widgetWindows.remove(id);
@@ -283,6 +302,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
 }
 
 function unregisterWidgetHandlers() {
+  for (const channel of ['note:open','note:move','note:get','note:update','note:save','note:close','note:delete']) ipcMain.removeHandler(channel);
   for (const channel of ['desktop-search:show','desktop-search:list','desktop-search:resize','desktop-search:icon','desktop-search:open-item','desktop-search:close']) ipcMain.removeHandler(channel);
   for(const channel of ['audio:snapshot','audio:volume','audio:device','audio:start','audio:stop','audio:retry-save','audio:open-folder']) ipcMain.removeHandler(channel);
   for(const channel of ['countdown:action','todo:add','todo:complete','todo:move','todo-reminder:get','todo-reminder:dismiss','todo-reminder:preview']) ipcMain.removeHandler(channel);

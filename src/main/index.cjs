@@ -3,6 +3,7 @@ const { supportsNativeAcrylic, installLegacyGlass } = require('./window-glass.cj
 const { app, BrowserWindow, screen, Menu, Tray, nativeTheme, globalShortcut, safeStorage, shell, dialog, powerMonitor } = require('electron');
 const { TodoReminders } = require('./todo-reminders.cjs');
 const { TodoReminderWindow } = require('./todo-reminder-window.cjs');
+const { NoteWindows } = require('./note-windows.cjs');
 const { DesktopSearch } = require('./desktop-search.cjs');
 const { configureDataPaths, getStartupSettings, setStartupSettings } = require('./runtime-settings.cjs');
 const { WidgetStore } = require('./widget-store.cjs');
@@ -14,6 +15,7 @@ const { QWeatherSettings } = require('./qweather-settings.cjs');
 const { LyricsService } = require('./lyrics-service.cjs');
 const { registerHandlers, unregisterWidgetHandlers } = require('./ipc.cjs');
 const { GRID_SIZE } = require('../shared/grid.cjs');
+const { countdownReminder } = require('../shared/countdown.cjs');
 
 try {
   configureDataPaths(app);
@@ -42,6 +44,7 @@ let countdown;
 let todoReminders;
 let reminderWindow;
 let desktopSearch;
+let noteWindows;
 let lastAudioRecording;
 // Unsaved credentials and page drafts stay in memory for this app session only.
 let controlState=null;
@@ -150,6 +153,14 @@ if (primaryInstance) app.whenReady().then(() => {
     rendererPath: path.join(__dirname, '../../dist/renderer/widget.html'),
     devUrl: process.env.DESKISLAND_DEV_URL,
   });
+  noteWindows = new NoteWindows({
+    BrowserWindow, screen, store,
+    preloadPath: path.join(__dirname, '../preload/note.cjs'),
+    rendererPath: path.join(__dirname, '../../dist/renderer/note.html'),
+    devUrl: process.env.DESKISLAND_DEV_URL,
+    onChange: id => widgetWindows.windows.get(id)?.webContents.send('widget:settings'),
+    onError: error => console.error('Note save failed:', error),
+  });
   widgetWindows.onEditModeChange = (enabled) => {
     if(enabled) desktopSearch?.close();
     if(enabled) globalShortcut.register('Escape',()=>widgetWindows.setEditMode(false));
@@ -169,8 +180,8 @@ if (primaryInstance) app.whenReady().then(() => {
     screen.on(event, () => { desktopSearch.close();widgetWindows.setEditMode(false); });
   }
   const reportTodoError = error => {
-    console.error('Todo reminder failed:', error);
-    controlWindow?.webContents.send('desktop:error', `待办提醒失败：${error.message}`);
+    console.error('Reminder failed:', error);
+    controlWindow?.webContents.send('desktop:error', `到期提醒失败：${error.message}`);
   };
   reminderWindow = new TodoReminderWindow({
     getWindowsHost,
@@ -181,9 +192,10 @@ if (primaryInstance) app.whenReady().then(() => {
     onOpen: () => widgetWindows.setEditMode(false),
     onError: (error,items) => {
       const widget=store.list().find(item=>item.typeId==='todo');
-      if(widget && items?.length) {
+      const todoItems = items?.filter(item => item.source !== 'countdown');
+      if(widget && todoItems?.length) {
         try {
-          store.setTodoReminderStates(widget.id,new Map(items.map(item=>[item.id,'missed'])));
+          store.setTodoReminderStates(widget.id,new Map(todoItems.map(item=>[item.id,'missed'])));
           widgetWindows.windows.get(widget.id)?.webContents.send('widget:settings');
         } catch(saveError) { reportTodoError(saveError); }
       }
@@ -191,14 +203,16 @@ if (primaryInstance) app.whenReady().then(() => {
     },
   });
   countdown = new Countdown({
-    onDue: id => { widgetWindows.setEditMode(false);void widgetWindows.setCountdownReminder(id,true).catch(reportTodoError); },
+    onDue: id => {
+      try { reminderWindow.show([countdownReminder(id, countdown.get(id))]); }
+      catch (error) { reminderWindow.dismiss();throw error; }
+    },
     onChange: (id, finished) => {
       if (finished) { try { store.updateSettings(id, {seconds: 0}); } catch (error) { reportTodoError(error); } }
       widgetWindows.windows.get(id)?.webContents.send('widget:settings');
     }, onError: reportTodoError,
   });
   countdown.open();
-  widgetWindows.isCountdownFinished = id => countdown.get(id).status === 'finished';
   todoReminders = new TodoReminders({
     store, onDue: items => {
       try { reminderWindow.show(items); }
@@ -214,7 +228,7 @@ if (primaryInstance) app.whenReady().then(() => {
   if(powerMonitor.getSystemIdleState(1)==='locked') { todoReminders.setBlocked('lock',true);countdown.setBlocked('lock',true); }
   todoReminders.start();
   registerHandlers({
-    desktopSearch,
+    desktopSearch, noteWindows,
     audioService,
     openAudioFolder:()=>{const saved=audioService.snapshot.recording.savedPath;if(saved) shell.showItemInFolder(saved);},
     getAppInfo: () => ({ version: app.getVersion() }),
@@ -263,20 +277,32 @@ app.on('activate', () => createControlWindow());
 // The tray keeps the app running even when every renderer window has been released.
 app.on('window-all-closed',()=>{});
 app.on('before-quit', event => {
-  if(audioService&&!audioService.closed) {
+  if (!quitting && (noteWindows || (audioService && !audioService.closed))) {
     event.preventDefault();
-    if(!quitPending){quitPending=true;void audioService.shutdown().catch(error=>console.error('录音退出保存失败，临时文件已保留：',error)).finally(()=>app.quit());}
+    if (!quitPending) {
+      quitPending = true;
+      // Collect live editor values before IPC is removed or any renderer is destroyed.
+      void (noteWindows?.prepareQuit() ?? Promise.resolve()).then(async () => {
+        if (audioService && !audioService.closed) await audioService.shutdown().catch(error => console.error('录音退出保存失败，临时文件已保留：', error));
+        quitting = true;app.quit();
+      }).catch(error => {
+        quitPending = false;
+        dialog.showErrorBox('便签未能保存，已取消退出', `${error.message}\n请在便签窗口重试保存，内容仍保留。`);
+      });
+    }
     return;
   }
   quitting = true;
   globalShortcut.unregister('Escape');
-  unregisterWidgetHandlers();
   countdown?.close();
   todoReminders?.close();
   reminderWindow?.close();
   desktopSearch?.close();
+  noteWindows?.closeAll();
   for(const [event,listener] of powerListeners) powerMonitor.removeListener(event,listener);
   widgetWindows?.closeAll();
+  if (controlWindow && !controlWindow.isDestroyed()) controlWindow.destroy();
+  unregisterWidgetHandlers();
   windowsHost?.close();
   tray?.destroy();
 });

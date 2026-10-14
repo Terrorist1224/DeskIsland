@@ -5,9 +5,18 @@ const path = require('node:path');
 const { randomUUID } = require('node:crypto');
 const { Countdown } = require('../src/main/countdown.cjs');
 const { WidgetStore } = require('../src/main/widget-store.cjs');
-const { validateDuration } = require('../src/shared/countdown.cjs');
+const { validateDuration, countdownReminder } = require('../src/shared/countdown.cjs');
 const colors = require('../src/shared/todo-colors.json');
 const crypto = require('node:crypto');
+
+test('countdown overlay labels distinguish named presets and anonymous runs and reuse all five colors', () => {
+  for (const color of colors) {
+    const item = countdownReminder('test', { name: '测试预设', color: color.value }, 1234);
+    assert.deepEqual(item, { id: 'countdown:test', source: 'countdown', countdownName: '测试预设', text: '测试预设 结束', color: color.id, remindAt: 1234, reminderState: 'notified' });
+  }
+  const unnamed = countdownReminder('test', { name: '', color: colors[0].value });
+  assert.equal(unnamed.text, '倒计时结束');assert.equal(unnamed.countdownName, '');
+});
 
 test('each start picks a todo color and retains it through pause, resume and expiry', t => {
   let now=0,index=0;

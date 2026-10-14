@@ -68,7 +68,7 @@ class WidgetWindows {
       minimizable: false,
       maximizable: false,
       skipTaskbar: true,
-      focusable: ['todo','countdown','audio','desktop-search'].includes(widget.typeId),
+      focusable: ['todo','note','countdown','audio','desktop-search'].includes(widget.typeId),
       show: false,
       webPreferences: {
         preload: this.preloadPath,
@@ -89,12 +89,13 @@ class WidgetWindows {
     if(widget.typeId!=='countdown') window.on('will-move', (event) => event.preventDefault());
     // Hidden transparent windows may not paint; initialize from load instead of waiting for ready-to-show.
     window.webContents.once('did-finish-load', async () => {
-      window.setBounds({ x:widget.x,y:widget.y,width:widget.width,height:widget.height }, false);
+      if (window.isDestroyed()) return;
       try {
+        window.setBounds({ x:widget.x,y:widget.y,width:widget.width,height:widget.height }, false);
         if(reminder) {
           if(!window.isAlwaysOnTop()) throw new Error('倒计时窗口未能置顶');
         } else {
-          const result=await this.getWindowsHost().request('system.desktop-widget',{handle:getWindowHandle(window),focusable:['todo','countdown','audio','desktop-search'].includes(widget.typeId)});
+          const result=await this.getWindowsHost().request('system.desktop-widget',{handle:getWindowHandle(window),focusable:['todo','note','countdown','audio','desktop-search'].includes(widget.typeId)});
           if(!result.installed) throw new Error('Windows 没有启用桌面磁贴层级');
         }
         if(window.isDestroyed()) return;
@@ -106,6 +107,7 @@ class WidgetWindows {
     });
     window.on('resize', () => this.#sendBounds(widget.id));
     window.webContents.once('did-finish-load', () => {
+      if (window.isDestroyed()) return;
       window.webContents.send('widget:active', !this.paused);
       window.webContents.send('desktop:edit-mode', this.editMode);
       this.#sendBounds(widget.id);
@@ -170,7 +172,7 @@ class WidgetWindows {
         });
         overlay.setIgnoreMouseEvents(true);
         overlay.setAlwaysOnTop(true, 'floating');
-        const html = `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>html{height:100%;background-color:#ffffff03;background-image:linear-gradient(#ffffff26 1px,transparent 1px),linear-gradient(90deg,#ffffff26 1px,transparent 1px);background-size:${GRID_SIZE}px ${GRID_SIZE}px}body{font:14px Segoe UI,sans-serif;color:#fafafa;background:#17161bed;border:1px solid #ffffff40;border-radius:12px;padding:12px 18px;width:max-content;margin:12px auto}</style><body>DeskIsland · 拖动磁贴，四角缩放（待办宽高独立） · Esc 完成编辑</body>`;
+        const html = `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>html{height:100%;background-color:#ffffff03;background-image:linear-gradient(#ffffff26 1px,transparent 1px),linear-gradient(90deg,#ffffff26 1px,transparent 1px);background-size:${GRID_SIZE}px ${GRID_SIZE}px}body{font:14px Segoe UI,sans-serif;color:#fafafa;background:#17161bed;border:1px solid #ffffff40;border-radius:12px;padding:12px 18px;width:max-content;margin:12px auto}</style><body>DeskIsland · 拖动磁贴，四角缩放（待办、便签宽高独立） · Esc 完成编辑</body>`;
         void overlay.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
         overlay.once('ready-to-show', () => {
           if (!overlay.isDestroyed() && this.editMode) {

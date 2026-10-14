@@ -13,6 +13,7 @@ class WindowsHostClient {
     this.lines = readline.createInterface({ input: this.child.stdout });
     this.lines.on('line', (line) => this.#onLine(line));
     this.child.on('error', (error) => this.#failAll(error));
+    this.child.stdin.on('error', (error) => this.#failAll(error));
     this.child.on('exit', (code) => this.#failAll(new Error(`Windows host exited (${code ?? 'unknown'}).`)));
     this.stderr = '';
     this.child.stderr.on('data', chunk => { this.stderr = (this.stderr + chunk).slice(-4000); });

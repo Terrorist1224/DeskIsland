@@ -5,7 +5,8 @@ import SearchTile from './components/desktop-search/SearchTile.vue';
 import AudioTile from './components/audio/AudioTile.vue';
 import CountdownTile from './components/countdown/CountdownTile.vue';
 import TodoTile from './components/todo/TodoTile.vue';
-import type { TodoItem } from '../shared/contracts';
+import NoteTile from './components/note/NoteTile.vue';
+import type { NoteItem, TodoItem } from '../shared/contracts';
 import WeatherIcon from './components/WeatherIcon.vue';
 import { activeLyric } from '../shared/lyrics';
 import type { EditGesture, LyricsSnapshot, MediaSnapshot, WeatherLocation, WeatherSnapshot, WidgetInstance } from '../shared/contracts';
@@ -51,7 +52,7 @@ const isMusic = computed(() => widget.value?.typeId === 'music');
 const baseSize=computed(()=>widget.value ? getWidgetDefinition(widget.value.typeId).variants.find(item=>item.id===widget.value!.variantId)!.size : {width:240,height:240});
 const compact=computed(()=>liveWidth.value<baseSize.value.width);
 const contentStyle=computed(()=>{
-  if(['todo','desktop-search'].includes(widget.value?.typeId ?? '')) return {width:'100%',height:'100%',transform:'none'};
+  if(['todo','note','desktop-search'].includes(widget.value?.typeId ?? '')) return {width:'100%',height:'100%',transform:'none'};
   if(widget.value?.typeId==='countdown') return {width:`${baseSize.value.width}px`,height:`${baseSize.value.height}px`,transform:`scale(${liveWidth.value/baseSize.value.width})`};
   const width=Math.min(liveWidth.value,baseSize.value.width);
   return {width:`${width}px`,height:`${width*baseSize.value.height/baseSize.value.width}px`,transform:`scale(${Math.max(1,liveWidth.value/baseSize.value.width)})`};
@@ -297,6 +298,7 @@ onBeforeUnmount(() => {
       :lyric-line="media?.timelineAvailable === false ? undefined : currentLyric" :lyric-end-seconds="lyricEndSeconds" :lyric="media?.timelineAvailable === false ? '未提供播放时间，歌词同步不可用' : currentLyric?.text || (lyricsLoading ? '正在获取歌词…' : lyricsError ? lyricAttempts < 3 ? '正在重试歌词…' : '歌词暂时无法获取' : lyrics?.lines.length ? '等待歌词开始' : lyrics?.plainLyrics ? '暂无同步歌词' : lyricTrackKey ? '暂无匹配歌词' : '等待歌词')"
       @command="sendMediaCommand" />
 
+    <NoteTile v-else-if="widget.typeId === 'note'" :items="widget.settings.items as NoteItem[]" :editing="editMode" @saved="items => { if(widget) widget.settings.items = items; }" />
     <SearchTile v-else-if="widget.typeId === 'desktop-search'" :width="liveWidth" />
     <AudioTile v-else-if="widget.typeId === 'audio'" />
     <CountdownTile v-else-if="widget.typeId === 'countdown'" :compact="compact" />
