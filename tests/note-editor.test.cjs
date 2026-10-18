@@ -6,6 +6,40 @@ const { transpile } = require('typescript');
 const { noteTitle } = require('../src/shared/note.cjs');
 const TODO_COLORS = require('../src/shared/todo-colors.json');
 
+function editor(bridge) {
+  const source = readFileSync(require.resolve('../src/renderer/components/note/NoteEditor.vue'), 'utf8');
+  const script = source.match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1].replace(/^import .*;$/gm, '');
+  let mounted;
+  const state = new Function('ref', 'computed', 'onMounted', 'onBeforeUnmount', 'nextTick', 'noteTitle', 'TODO_COLORS', 'window',
+    transpile(script) + ';return {togglePin,alwaysOnTop,pinning,pinError,error,ready,busy,locked};')(
+    ref, computed, callback => { mounted = callback; }, () => {}, async () => {}, noteTitle, TODO_COLORS, { noteEditor: bridge });
+  return { ...state, mount: () => mounted() };
+}
+
+test('pin toggle initializes from window state, prevents repeat requests and preserves state on failure', async () => {
+  let resolve, reject, calls = [];
+  const state = editor({
+    get: async () => ({ text: '测试', color: 'blue', alwaysOnTop: true }),
+    onSaveRequest() {}, onLock() {}, onError() {}, onSaved() {},
+    setAlwaysOnTop: value => { calls.push(value);return new Promise((yes, no) => { resolve = yes;reject = no; }); },
+  });
+  await state.togglePin();assert.equal(calls.length, 0);
+  await state.mount();assert.equal(state.alwaysOnTop.value, true);
+  for (const flag of [state.busy, state.locked]) {
+    flag.value = true;await state.togglePin();flag.value = false;
+  }
+  assert.equal(calls.length, 0);
+  const first = state.togglePin();assert.equal(state.pinning.value, true);
+  await state.togglePin();assert.deepEqual(calls, [false]);
+  resolve(false);await first;
+  assert.equal(state.alwaysOnTop.value, false);assert.equal(state.pinning.value, false);
+  const failed = state.togglePin();reject(new Error('测试置顶失败'));await failed;
+  assert.equal(state.alwaysOnTop.value, false);assert.equal(state.pinning.value, false);
+  assert.match(state.pinError.value, /置顶切换失败/);assert.equal(state.error.value, '');
+  const retried = state.togglePin();resolve(true);await retried;
+  assert.equal(state.alwaysOnTop.value, true);assert.equal(state.pinError.value, '');
+});
+
 test('note Ctrl-wheel changes only body size within bounds; ordinary wheel remains scrollable', () => {
   const source = readFileSync(require.resolve('../src/renderer/components/note/NoteEditor.vue'), 'utf8');
   const script = source.match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1].replace(/^import .*;$/gm, '');

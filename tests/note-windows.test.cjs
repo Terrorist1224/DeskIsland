@@ -16,6 +16,8 @@ class FakeWindow extends EventEmitter {
   setMenu() {}
   setBackgroundColor(color) { this.color = color; }
   setTitle(title) { this.title = title; }
+  setAlwaysOnTop(value, level) { this.alwaysOnTop = value;this.topLevel = level; }
+  isAlwaysOnTop() { return !!this.alwaysOnTop; }
   setBounds(bounds) { this.bounds = bounds; }
   getBounds() { return this.bounds; }
   show() {}
@@ -62,10 +64,31 @@ test('blank windows are discarded; final close saves latest text; existing windo
   windows.close(first.window.webContents, { text: '首行\n最后一个字', color: 'green' });
   assert.equal(items()[0].text, '首行\n最后一个字');assert.equal(first.window.isDestroyed(), true);
   windows.open(first.widgetId, first.id);const restored = windows.entries.get(first.id);windows.open(first.widgetId, first.id);assert.equal(windows.entries.size, 2);
-  assert.deepEqual(windows.get(restored.window.webContents), { id: first.id, text: '首行\n最后一个字', color: 'green' });
+  assert.deepEqual(windows.get(restored.window.webContents), { id: first.id, text: '首行\n最后一个字', color: 'green', alwaysOnTop: false });
   assert.notEqual(windows.get(second.window.webContents).id, first.id);
   assert.throws(() => windows.update({}, { text: '伪造', color: 'blue' }), /自己的编辑窗口/);
   assert.equal(restored.window.options.webPreferences.sandbox, true);assert.equal(restored.window.options.webPreferences.nodeIntegration, false);
+});
+
+test('pinning belongs to the current editor window, validates input and resets on reopen', t => {
+  const { windows, open, items } = fixture(t), first = open(), second = open();
+  const sender = first.window.webContents;
+  assert.equal(windows.get(sender).alwaysOnTop, false);
+  assert.equal(windows.setAlwaysOnTop(sender, true), true);
+  assert.equal(first.window.topLevel, 'floating');
+  assert.equal(windows.get(sender).alwaysOnTop, true);
+  assert.equal(windows.get(second.window.webContents).alwaysOnTop, false);
+  assert.equal(items().length, 0);
+  for (const value of [undefined, null, 0, 1, 'true', {}, []]) assert.throws(() => windows.setAlwaysOnTop(sender, value), /布尔值/);
+  assert.equal(windows.get(sender).alwaysOnTop, true);
+  assert.throws(() => windows.setAlwaysOnTop({}, false), /自己的编辑窗口/);
+  assert.equal(windows.setAlwaysOnTop(sender, false), false);
+  windows.setAlwaysOnTop(sender, true);
+  windows.close(sender, { text: '测试置顶便签', color: 'green' });
+  assert.deepEqual(items()[0], { id: first.id, text: '测试置顶便签', color: 'green' });
+  assert.throws(() => windows.setAlwaysOnTop(sender, true), /自己的编辑窗口/);
+  windows.open(first.widgetId, first.id);
+  assert.equal(windows.get(windows.entries.get(first.id).window.webContents).alwaysOnTop, false);
 });
 
 test('autosave merges rapid inputs and deletion rejects late updates instead of resurrecting a note', t => {

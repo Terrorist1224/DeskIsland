@@ -8,6 +8,7 @@ import PaletteIcon from '../PaletteIcon.vue';
 const text = ref(''), color = ref<TodoColor>('blue'), ready = ref(false), busy = ref(false), confirming = ref(false), palette = ref(false), error = ref('');
 const input = ref<HTMLTextAreaElement>();
 const locked = ref(false);
+const alwaysOnTop = ref(false), pinning = ref(false), pinError = ref('');
 const fontSize = ref(16);
 function zoom(event: WheelEvent) {
   if (!event.ctrlKey) return;
@@ -25,6 +26,15 @@ function update() {
   void window.noteEditor.update(snapshot()).catch(failed);
 }
 function choose(value: TodoColor) { color.value = value;palette.value = false;update(); }
+async function togglePin() {
+  if (!ready.value || busy.value || locked.value || pinning.value) return;
+  pinning.value = true;
+  try {
+    alwaysOnTop.value = await window.noteEditor.setAlwaysOnTop(!alwaysOnTop.value);
+    pinError.value = '';
+  } catch { pinError.value = '置顶切换失败，请点击置顶按钮重试'; }
+  finally { pinning.value = false; }
+}
 async function action(kind: 'close' | 'delete' | 'save', token?: number) {
   if (!ready.value || ((busy.value || locked.value) && token === undefined)) return;
   busy.value = true;
@@ -42,7 +52,7 @@ onMounted(async () => {
   removers.push(window.noteEditor.onError(message => { error.value = message; }));
   removers.push(window.noteEditor.onSaved(() => { error.value = ''; }));
   try {
-    const note = await window.noteEditor.get();text.value = note.text;color.value = note.color;ready.value = true;
+    const note = await window.noteEditor.get();text.value = note.text;color.value = note.color;alwaysOnTop.value = note.alwaysOnTop;ready.value = true;
     await nextTick();input.value?.focus();
   } catch (cause) { failed(cause); }
 });
@@ -54,7 +64,12 @@ onBeforeUnmount(() => removers.forEach(remove => remove()));
     <header class="note-titlebar">
       <span :title="title">{{ title }}</span>
       <button type="button" aria-label="选择便签颜色" :aria-expanded="palette" :disabled="!ready || busy || locked" @click="palette = !palette"><PaletteIcon /></button>
-      <button type="button" aria-label="保存并关闭便签" :disabled="!ready || busy || locked" @click="action('close')">×</button>
+      <button type="button" :aria-label="alwaysOnTop ? '取消置顶' : '置顶便签'" :title="alwaysOnTop ? '取消置顶' : '置顶便签'" :aria-pressed="alwaysOnTop" :disabled="!ready || busy || locked || pinning" @click="togglePin">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3h8M9 3v7l-3 4v2h12v-2l-3-4V3M12 16v5" /></svg>
+      </button>
+      <button type="button" aria-label="保存并关闭便签" :disabled="!ready || busy || locked" @click="action('close')">
+        <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m6 6 12 12M18 6 6 18" /></svg>
+      </button>
     </header>
     <div v-if="palette" class="note-palette" aria-label="便签颜色">
       <button v-for="choice in TODO_COLORS" :key="choice.id" type="button" :aria-label="choice.name" :aria-pressed="color === choice.id" :style="{ background: choice.value }" :disabled="busy || locked" @click="choose(choice.id)"></button>
@@ -67,11 +82,12 @@ onBeforeUnmount(() => removers.forEach(remove => remove()));
         <button type="button" :disabled="busy || locked" @click="confirming = false">否</button>
       </div>
       <button v-else type="button" :disabled="!ready || busy || locked" @click="confirming = true; palette = false">删除</button>
+      <span v-if="pinError" class="note-save-error" role="alert">{{ pinError }}</span>
       <span v-if="error" class="note-save-error" role="alert">{{ error }} <button type="button" :disabled="busy || locked" @click="action('save')">重试保存</button></span>
     </footer>
   </main>
 </template>
 
 <style>
-.note-editor{display:flex;flex-direction:column;height:100%;color:#24292C;color-scheme:light;font-family:"Segoe UI","Microsoft YaHei UI",sans-serif;position:relative}.note-editor *{box-sizing:border-box}.note-editor button{font:inherit;color:inherit;cursor:pointer;border:1px solid #24292C25;border-radius:8px;background:#FFFFFF85;padding:6px 12px}.note-editor button:focus-visible{outline:2px solid #293F4A;outline-offset:-2px}.note-titlebar{display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid #24292C18;app-region:drag}.note-titlebar span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px;font-weight:600}.note-titlebar button{app-region:no-drag;min-width:36px}.note-titlebar svg{display:block;width:20px;height:20px}.note-titlebar button:last-child{font-size:24px;line-height:1;padding:5px 9px}.note-editor textarea{scrollbar-width:none;outline:none;flex:1;min-height:0;resize:none;display:block;width:100%;border:0;background:transparent;color:inherit;padding:18px;font:16px/1.65 "Segoe UI","Microsoft YaHei UI",sans-serif;overflow-wrap:anywhere}.note-editor textarea::-webkit-scrollbar{display:none}.note-editor footer{display:flex;gap:12px;align-items:center;flex-wrap:wrap;min-height:52px;padding:8px 12px;border-top:1px solid #24292C18;font-size:13px}.note-delete-confirm{display:flex;gap:8px;align-items:center}.note-delete-confirm button:first-of-type{background:#BEDCCD}.note-delete-confirm button:last-child{background:#EACCD0}.note-save-error{color:#8C2020;overflow-wrap:anywhere;flex:1}.note-palette{position:absolute;z-index:2;right:56px;top:55px;display:flex;gap:8px;background:#FFFFFFDD;border:1px solid #24292C25;border-radius:12px;padding:12px;box-shadow:0 4px 16px #0002}.note-palette button{width:28px;height:28px;border-radius:50%;padding:0;border:1px solid #24292C40}.note-palette [aria-pressed="true"]{outline:2px solid #293F4A;outline-offset:2px}
+.note-editor{display:flex;flex-direction:column;height:100%;color:#24292C;color-scheme:light;font-family:"Segoe UI","Microsoft YaHei UI",sans-serif;position:relative}.note-editor *{box-sizing:border-box}.note-editor button{font:inherit;color:inherit;cursor:pointer;border:1px solid #24292C25;border-radius:8px;background:#FFFFFF85;padding:6px 12px}.note-editor button:focus-visible{outline:2px solid #293F4A;outline-offset:-2px}.note-titlebar{display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid #24292C18;app-region:drag}.note-titlebar span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px;font-weight:600}.note-titlebar button{app-region:no-drag;display:flex;align-items:center;justify-content:center;flex:0 0 36px;width:36px;height:36px;padding:0}.note-titlebar button[aria-pressed="true"]{background:#FFF;border-color:#293F4A}.note-titlebar svg{display:block;width:20px;height:20px}.note-editor textarea{scrollbar-width:none;outline:none;flex:1;min-height:0;resize:none;display:block;width:100%;border:0;background:transparent;color:inherit;padding:18px;font:16px/1.65 "Segoe UI","Microsoft YaHei UI",sans-serif;overflow-wrap:anywhere}.note-editor textarea::-webkit-scrollbar{display:none}.note-editor footer{display:flex;gap:12px;align-items:center;flex-wrap:wrap;min-height:52px;padding:8px 12px;border-top:1px solid #24292C18;font-size:13px}.note-delete-confirm{display:flex;gap:8px;align-items:center}.note-delete-confirm button:first-of-type{background:#BEDCCD}.note-delete-confirm button:last-child{background:#EACCD0}.note-save-error{color:#8C2020;overflow-wrap:anywhere;flex:1}.note-palette{position:absolute;z-index:2;right:100px;top:55px;display:flex;gap:8px;background:#FFFFFFDD;border:1px solid #24292C25;border-radius:12px;padding:12px;box-shadow:0 4px 16px #0002}.note-palette button{width:28px;height:28px;border-radius:50%;padding:0;border:1px solid #24292C40}.note-palette [aria-pressed="true"]{outline:2px solid #293F4A;outline-offset:2px}
 </style>

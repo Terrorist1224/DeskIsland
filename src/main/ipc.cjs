@@ -17,6 +17,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
     return items;
   });
   ipcMain.handle('note:get', event => noteWindows.get(event.sender));
+  ipcMain.handle('note:set-always-on-top', (event, value) => noteWindows.setAlwaysOnTop(event.sender, value));
   ipcMain.handle('note:update', (event, input) => noteWindows.update(event.sender, input));
   ipcMain.handle('note:save', (event, input, token) => noteWindows.save(event.sender, input, token));
   ipcMain.handle('note:close', (event, input) => noteWindows.close(event.sender, input));
@@ -302,7 +303,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
 }
 
 function unregisterWidgetHandlers() {
-  for (const channel of ['note:open','note:move','note:get','note:update','note:save','note:close','note:delete']) ipcMain.removeHandler(channel);
+  for (const channel of ['note:open','note:move','note:get','note:set-always-on-top','note:update','note:save','note:close','note:delete']) ipcMain.removeHandler(channel);
   for (const channel of ['desktop-search:show','desktop-search:list','desktop-search:resize','desktop-search:icon','desktop-search:open-item','desktop-search:close']) ipcMain.removeHandler(channel);
   for(const channel of ['audio:snapshot','audio:volume','audio:device','audio:start','audio:stop','audio:retry-save','audio:open-folder']) ipcMain.removeHandler(channel);
   for(const channel of ['countdown:action','todo:add','todo:complete','todo:move','todo-reminder:get','todo-reminder:dismiss','todo-reminder:preview']) ipcMain.removeHandler(channel);

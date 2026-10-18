@@ -20,6 +20,7 @@ test('note list IPC accepts only enabled note tile and editor channels stay sepa
   const widgetWindows = { editMode: false, windows: new Map([[note.id, { webContents: noteSender, isDestroyed: () => false }], [todo.id, { webContents: todoSender, isDestroyed: () => false }]]) };
   let opened = false;
   const noteWindows = { open: id => { assert.equal(id, note.id);opened = true; }, get: sender => { if (sender !== editorSender) throw new Error('编辑窗口');return { text: '测试' }; } };
+  noteWindows.setAlwaysOnTop = (sender, value) => { noteWindows.get(sender);assert.equal(typeof value, 'boolean');return value; };
   registerHandlers({ store, widgetWindows, noteWindows, getControlWindow: () => ({ webContents: controlSender }) });
   for (const sender of [todoSender, editorSender, controlSender, {}]) assert.throws(() => handlers.get('note:open')({ sender }), /便签磁贴/);
   handlers.get('note:open')({ sender: noteSender });assert.equal(opened, true);
@@ -27,7 +28,25 @@ test('note list IPC accepts only enabled note tile and editor channels stay sepa
   assert.equal(handlers.get('note:move')({ sender: noteSender }, 'test', null)[0].id, 'test');
   for (const sender of [todoSender, noteSender, controlSender, {}]) assert.throws(() => handlers.get('note:get')({ sender }), /编辑窗口/);
   assert.equal(handlers.get('note:get')({ sender: editorSender }).text, '测试');
+  for (const sender of [todoSender, noteSender, controlSender, {}]) assert.throws(() => handlers.get('note:set-always-on-top')({ sender }, true), /编辑窗口/);
+  assert.equal(handlers.get('note:set-always-on-top')({ sender: editorSender }, true), true);
+  assert.equal(handlers.get('note:set-always-on-top')({ sender: editorSender }, false), false);
   widgetWindows.editMode = true;assert.throws(() => handlers.get('note:open')({ sender: noteSender }), /便签磁贴/);
   widgetWindows.editMode = false;store.setEnabled(note.id, false);assert.throws(() => handlers.get('note:move')({ sender: noteSender }, 'test', null), /便签磁贴/);
   unregisterWidgetHandlers();assert.equal(handlers.size, 0);
+});
+
+test('note preload exposes pinning through its fixed IPC channel', async () => {
+  let bridge, invocation;
+  require('node:vm').runInNewContext(fs.readFileSync(require.resolve('../src/preload/note.cjs'), 'utf8'), {
+    require: name => {
+      assert.equal(name, 'electron');
+      return {
+        contextBridge: { exposeInMainWorld: (name, value) => { assert.equal(name, 'noteEditor');bridge = value; } },
+        ipcRenderer: { invoke: async (...args) => { invocation = args;return args[1]; } },
+      };
+    },
+  });
+  assert.equal(await bridge.setAlwaysOnTop(true), true);
+  assert.deepEqual(invocation, ['note:set-always-on-top', true]);
 });

@@ -6,6 +6,7 @@ function listen(channel, callback) {
 }
 contextBridge.exposeInMainWorld('noteEditor', {
   get: () => ipcRenderer.invoke('note:get'),
+  setAlwaysOnTop: value => ipcRenderer.invoke('note:set-always-on-top', value),
   update: input => ipcRenderer.invoke('note:update', input),
   save: (input, token) => ipcRenderer.invoke('note:save', input, token),
   close: input => ipcRenderer.invoke('note:close', input),

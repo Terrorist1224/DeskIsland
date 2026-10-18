@@ -77,7 +77,14 @@ class NoteWindows {
     return entry;
   }
 
-  get(sender) { const entry = this.requireSender(sender);return { id: entry.id, ...entry.input }; }
+  get(sender) { const entry = this.requireSender(sender);return { id: entry.id, ...entry.input, alwaysOnTop: entry.window.isAlwaysOnTop() }; }
+
+  setAlwaysOnTop(sender, value) {
+    const entry = this.requireSender(sender);
+    if (typeof value !== 'boolean') throw new Error('便签置顶状态必须为布尔值');
+    entry.window.setAlwaysOnTop(value, 'floating');
+    return entry.window.isAlwaysOnTop();
+  }
 
   update(sender, input) {
     const entry = this.requireSender(sender);

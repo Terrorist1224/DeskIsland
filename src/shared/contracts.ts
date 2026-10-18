@@ -179,7 +179,8 @@ declare global {
   interface Window {
     deskIsland: DesktopIslandBridge;
     noteEditor: {
-      get(): Promise<NoteItem>;
+      get(): Promise<NoteItem & { alwaysOnTop: boolean }>;
+      setAlwaysOnTop(value: boolean): Promise<boolean>;
       update(input: NoteInput): Promise<void>;
       save(input: NoteInput, token?: number): Promise<void>;
       close(input: NoteInput): Promise<void>;
