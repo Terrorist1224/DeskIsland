@@ -1,6 +1,7 @@
 const path = require('node:path');
-const { supportsNativeAcrylic, installLegacyGlass } = require('./window-glass.cjs');
-const { app, BrowserWindow, screen, Menu, Tray, nativeTheme, globalShortcut, safeStorage, shell, dialog, powerMonitor } = require('electron');
+const { app, BrowserWindow, screen, Menu, Tray, nativeTheme, globalShortcut, safeStorage, shell, dialog, powerMonitor, clipboard } = require('electron');
+const { TranslationSettings } = require('./translation-settings.cjs');
+const { TranslationService } = require('./translation-service.cjs');
 const { TodoReminders } = require('./todo-reminders.cjs');
 const { TodoReminderWindow } = require('./todo-reminder-window.cjs');
 const { NoteWindows } = require('./note-windows.cjs');
@@ -45,6 +46,7 @@ let todoReminders;
 let reminderWindow;
 let desktopSearch;
 let noteWindows;
+let translationService;
 let lastAudioRecording;
 // Unsaved credentials and page drafts stay in memory for this app session only.
 let controlState=null;
@@ -89,8 +91,8 @@ function createControlWindow(show = true) {
     show,
     icon: path.join(__dirname, 'tray-icon.png'),
     roundedCorners: true,
-    transparent: !supportsNativeAcrylic,
-    backgroundMaterial: supportsNativeAcrylic ? 'acrylic' : 'none',
+    transparent: true,
+    backgroundMaterial: 'none',
     backgroundColor: '#00000000',
     title: '桌屿',
     webPreferences: {
@@ -100,7 +102,6 @@ function createControlWindow(show = true) {
       sandbox: true,
     },
   });
-  installLegacyGlass(controlWindow, getWindowsHost);
   controlWindow.setMenu(null);
   controlWindow.on('close', (event) => {
     if (quitting) return;
@@ -132,6 +133,7 @@ if (primaryInstance) app.whenReady().then(() => {
   nativeTheme.themeSource = 'dark';
   Menu.setApplicationMenu(null);
   store = new WidgetStore(app.getPath('userData'));
+  translationService = new TranslationService(new TranslationSettings(app.getPath('userData'), safeStorage));
   const weatherSettings = new QWeatherSettings(app.getPath('userData'), safeStorage);
   weatherService = new WeatherService({ qweather: weatherSettings.service });
   lyricsService = new LyricsService();
@@ -162,11 +164,13 @@ if (primaryInstance) app.whenReady().then(() => {
     onError: error => console.error('Note save failed:', error),
   });
   widgetWindows.onEditModeChange = (enabled) => {
+    if(enabled) translationService.cancel();
     if(enabled) desktopSearch?.close();
     if(enabled) globalShortcut.register('Escape',()=>widgetWindows.setEditMode(false));
     else globalShortcut.unregister('Escape');
     if (controlWindow && !controlWindow.isDestroyed()) controlWindow.webContents.send('desktop:edit-mode', enabled);
   };
+  widgetWindows.onTranslationInterrupted = () => translationService.cancel();
   widgetWindows.onDesktopError = (message) => {
     console.error('Desktop widget initialization failed:',message);
     controlWindow?.webContents.send('desktop:error',message);
@@ -228,6 +232,7 @@ if (primaryInstance) app.whenReady().then(() => {
   if(powerMonitor.getSystemIdleState(1)==='locked') { todoReminders.setBlocked('lock',true);countdown.setBlocked('lock',true); }
   todoReminders.start();
   registerHandlers({
+    translationService, copyTranslation: text => clipboard.writeText(text),
     desktopSearch, noteWindows,
     audioService,
     openAudioFolder:()=>{const saved=audioService.snapshot.recording.savedPath;if(saved) shell.showItemInFolder(saved);},
@@ -277,6 +282,7 @@ app.on('activate', () => createControlWindow());
 // The tray keeps the app running even when every renderer window has been released.
 app.on('window-all-closed',()=>{});
 app.on('before-quit', event => {
+  translationService?.cancel();
   if (!quitting && (noteWindows || (audioService && !audioService.closed))) {
     event.preventDefault();
     if (!quitPending) {

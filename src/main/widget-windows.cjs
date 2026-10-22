@@ -67,8 +67,9 @@ class WidgetWindows {
       movable: false,
       minimizable: false,
       maximizable: false,
+      closable: widget.typeId !== 'translation',
       skipTaskbar: true,
-      focusable: ['todo','note','countdown','audio','desktop-search'].includes(widget.typeId),
+      focusable: ['todo','note','countdown','audio','desktop-search','translation'].includes(widget.typeId),
       show: false,
       webPreferences: {
         preload: this.preloadPath,
@@ -95,7 +96,7 @@ class WidgetWindows {
         if(reminder) {
           if(!window.isAlwaysOnTop()) throw new Error('倒计时窗口未能置顶');
         } else {
-          const result=await this.getWindowsHost().request('system.desktop-widget',{handle:getWindowHandle(window),focusable:['todo','note','countdown','audio','desktop-search'].includes(widget.typeId)});
+          const result=await this.getWindowsHost().request('system.desktop-widget',{handle:getWindowHandle(window),focusable:['todo','note','countdown','audio','desktop-search','translation'].includes(widget.typeId)});
           if(!result.installed) throw new Error('Windows 没有启用桌面磁贴层级');
         }
         if(window.isDestroyed()) return;
@@ -118,10 +119,12 @@ class WidgetWindows {
     for (const event of ['did-start-loading','render-process-gone']) {
       window.webContents.on(event, () => {
         if(this.gesture?.id===widget.id) this.cancelGesture();
+        if(widget.typeId==='translation' && this.windows.get(widget.id)===window) this.onTranslationInterrupted?.();
       });
     }
     window.on('closed', () => {
       if (this.windows.get(widget.id) !== window) return;
+      if(widget.typeId==='translation') this.onTranslationInterrupted?.();
       if(this.gesture?.id===widget.id) this.cancelGesture();
       this.windows.delete(widget.id);
       this.readyWindows.delete(window);
@@ -172,7 +175,7 @@ class WidgetWindows {
         });
         overlay.setIgnoreMouseEvents(true);
         overlay.setAlwaysOnTop(true, 'floating');
-        const html = `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>html{height:100%;background-color:#ffffff03;background-image:linear-gradient(#ffffff26 1px,transparent 1px),linear-gradient(90deg,#ffffff26 1px,transparent 1px);background-size:${GRID_SIZE}px ${GRID_SIZE}px}body{font:14px Segoe UI,sans-serif;color:#fafafa;background:#17161bed;border:1px solid #ffffff40;border-radius:12px;padding:12px 18px;width:max-content;margin:12px auto}</style><body>DeskIsland · 拖动磁贴，四角缩放（待办、便签宽高独立） · Esc 完成编辑</body>`;
+        const html = `<!doctype html><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'"><style>html{height:100%;background-color:#ffffff03;background-image:linear-gradient(#ffffff26 1px,transparent 1px),linear-gradient(90deg,#ffffff26 1px,transparent 1px);background-size:${GRID_SIZE}px ${GRID_SIZE}px}body{font:14px Segoe UI,sans-serif;color:#fafafa;background:#17161bed;border:1px solid #ffffff40;border-radius:12px;padding:12px 18px;width:max-content;margin:12px auto}</style><body>DeskIsland · 拖动磁贴，四角缩放（待办、便签、翻译宽高独立） · Esc 完成编辑</body>`;
         void overlay.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
         overlay.once('ready-to-show', () => {
           if (!overlay.isDestroyed() && this.editMode) {

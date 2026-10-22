@@ -1,4 +1,13 @@
-export type WidgetType = 'music' | 'weather' | 'todo' | 'countdown' | 'audio' | 'desktop-search' | 'note';
+export type WidgetType = 'music' | 'weather' | 'todo' | 'countdown' | 'audio' | 'desktop-search' | 'note' | 'translation';
+export type TranslationProvider = 'ai';
+export type TranslationLanguage = 'zh-CN' | 'zh-TW' | 'lzh' | 'en' | 'ja' | 'ko' | 'fr' | 'de' | 'es' | 'ru';
+export interface TranslationPreferences { provider: TranslationProvider; target: TranslationLanguage | 'auto' }
+export interface TranslationDraft { text: string; provider: TranslationProvider; target: TranslationPreferences['target'] }
+export interface TranslationSnapshot extends TranslationPreferences { text: string; result: string; error: string; revision: number; status: 'idle' | 'loading' | 'done' | 'error' }
+export interface TranslationConnection { apiKey: string; baseUrl: string }
+export type TranslationReasoningEffort = '' | 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra';
+export interface TranslationConfig extends TranslationConnection { model: string; prompt: string; reasoningEffort: TranslationReasoningEffort }
+export interface TranslationSettingsStatus { preferences: TranslationPreferences; error: string; providers: Record<TranslationProvider, { configured: boolean; hasApiKey: boolean; apiKey: string; baseUrl: string; model: string; prompt: string; reasoningEffort: TranslationReasoningEffort }> }
 export interface ControlState {
   selectedType: WidgetType; settingsPage: boolean; focusedWeatherId: string;
   apiHost: string; apiKey: string; weatherCodes: Record<string,string[]>;
@@ -111,6 +120,15 @@ export interface WeatherSnapshot {
 }
 
 export interface DesktopIslandBridge {
+  getTranslation(): Promise<TranslationSnapshot>;
+  updateTranslation(input: TranslationDraft): Promise<TranslationSnapshot>;
+  translate(revision: number): Promise<TranslationSnapshot>;
+  cancelTranslation(): Promise<TranslationSnapshot>;
+  copyTranslation(): Promise<void>;
+  getTranslationSettings(): Promise<TranslationSettingsStatus>;
+  saveTranslationConfig(provider: TranslationProvider, config: TranslationConfig): Promise<TranslationSettingsStatus>;
+  listTranslationModels(config: TranslationConnection): Promise<string[]>;
+  copyTranslationPromptVariable(token: string): Promise<void>;
   openNote(id?: string): Promise<void>;
   moveNote(id: string, beforeId: string | null): Promise<NoteItem[]>;
   openDesktopSearch(): Promise<void>;

@@ -1,6 +1,15 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('deskIsland', {
+  getTranslation: () => ipcRenderer.invoke('translation:get'),
+  updateTranslation: input => ipcRenderer.invoke('translation:update', input),
+  translate: revision => ipcRenderer.invoke('translation:run', revision),
+  cancelTranslation: () => ipcRenderer.invoke('translation:cancel'),
+  copyTranslation: () => ipcRenderer.invoke('translation:copy'),
+  getTranslationSettings: () => ipcRenderer.invoke('translation:settings'),
+  saveTranslationConfig: (provider, config) => ipcRenderer.invoke('translation:save-config', provider, config),
+  listTranslationModels: config => ipcRenderer.invoke('translation:models', config),
+  copyTranslationPromptVariable: token => ipcRenderer.invoke('translation:copy-prompt-variable', token),
   openNote: id => ipcRenderer.invoke('note:open', id),
   moveNote: (id, beforeId) => ipcRenderer.invoke('note:move', id, beforeId),
   openDesktopSearch: () => ipcRenderer.invoke('desktop-search:show'),

@@ -6,6 +6,7 @@ import AudioTile from './components/audio/AudioTile.vue';
 import CountdownTile from './components/countdown/CountdownTile.vue';
 import TodoTile from './components/todo/TodoTile.vue';
 import NoteTile from './components/note/NoteTile.vue';
+import TranslationTile from './components/translation/TranslationTile.vue';
 import type { NoteItem, TodoItem } from '../shared/contracts';
 import WeatherIcon from './components/WeatherIcon.vue';
 import { activeLyric } from '../shared/lyrics';
@@ -52,7 +53,7 @@ const isMusic = computed(() => widget.value?.typeId === 'music');
 const baseSize=computed(()=>widget.value ? getWidgetDefinition(widget.value.typeId).variants.find(item=>item.id===widget.value!.variantId)!.size : {width:240,height:240});
 const compact=computed(()=>liveWidth.value<baseSize.value.width);
 const contentStyle=computed(()=>{
-  if(['todo','note','desktop-search'].includes(widget.value?.typeId ?? '')) return {width:'100%',height:'100%',transform:'none'};
+  if(['todo','note','desktop-search','translation'].includes(widget.value?.typeId ?? '')) return {width:'100%',height:'100%',transform:'none'};
   if(widget.value?.typeId==='countdown') return {width:`${baseSize.value.width}px`,height:`${baseSize.value.height}px`,transform:`scale(${liveWidth.value/baseSize.value.width})`};
   const width=Math.min(liveWidth.value,baseSize.value.width);
   return {width:`${width}px`,height:`${width*baseSize.value.height/baseSize.value.width}px`,transform:`scale(${Math.max(1,liveWidth.value/baseSize.value.width)})`};
@@ -302,6 +303,7 @@ onBeforeUnmount(() => {
     <SearchTile v-else-if="widget.typeId === 'desktop-search'" :width="liveWidth" />
     <AudioTile v-else-if="widget.typeId === 'audio'" />
     <CountdownTile v-else-if="widget.typeId === 'countdown'" :compact="compact" />
+    <TranslationTile v-else-if="widget.typeId === 'translation'" :editing="editMode" />
     <TodoTile v-else-if="widget.typeId === 'todo'" :items="widget.settings.items as TodoItem[]" :editing="editMode" @saved="items => { if(widget) widget.settings.items = items; }" />
     <section v-else class="weather" :class="{'weather--compact':compact}">
       <template v-if="selectedLocation">
@@ -325,7 +327,7 @@ onBeforeUnmount(() => {
       aria-label="编辑模式：整面拖动，四角缩放，Esc 完成编辑"
       @pointerdown="beginGesture" @pointerup="finishGesture(true,$event)"
       @pointercancel="finishGesture(false,$event)" @lostpointercapture="finishGesture(false,$event)" @contextmenu.prevent>
-      <span v-for="corner in corners" :key="corner" :data-corner="corner" class="tile__corner" :class="`tile__corner--${corner}`" :aria-label="`从 ${corner} 角${widget.typeId === 'todo' ? '自由' : '等比'}缩放`"></span>
+      <span v-for="corner in corners" :key="corner" :data-corner="corner" class="tile__corner" :class="`tile__corner--${corner}`" :aria-label="`从 ${corner} 角${['todo','note','translation'].includes(widget.typeId) ? '自由' : '等比'}缩放`"></span>
     </div>
     <p v-if="editError || message" class="tile__message" role="status">{{ editError || message }}</p>
   </main>

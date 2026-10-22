@@ -37,6 +37,22 @@ class FakeWindow extends EventEmitter {
 }
 FakeWindow.instances = [];
 
+test('translation is a focusable singleton, freely resizes and restores without persisting session text', async t => {
+  const directory = path.join(__dirname, '../.tmp/tests', `translation-${randomUUID()}`);
+  const { manager, store } = createHarness(directory); t.after(() => { manager.closeAll(); fs.rmSync(directory, { recursive: true, force: true }); });
+  const widget = store.create('translation'), window = manager.show(widget);
+  let interruptions = 0; manager.onTranslationInterrupted = () => { interruptions++; };
+  window.webContents.emit('did-start-loading'); window.webContents.emit('render-process-gone'); assert.equal(interruptions, 2);
+  assert.equal(window.options.focusable, true); assert.equal(widget.width, 320); assert.equal(widget.height, 320);
+  assert.equal(window.options.closable, false);
+  assert.throws(() => store.create('translation'), /最多创建一个/);
+  store.updateBounds(widget.id, { ...widget, width: 240, height: 480 });
+  const restored = new WidgetStore(directory).list('translation')[0]; assert.equal(restored.width, 240); assert.equal(restored.height, 480); assert.deepEqual(restored.settings, {});
+  assert.throws(() => store.updateSettings(widget.id, { text: 'TEST_ONLY_NO_PERSIST' }), /Unsupported/);
+  await new Promise(resolve => setImmediate(resolve));
+  manager.remove(widget.id); assert.equal(window.isDestroyed(), true);
+});
+
 test('late page-load callbacks after tile destruction do not resize, send or attach a desktop HWND', async t => {
   const directory=path.join(__dirname,'../.tmp/tests',`late-load-${randomUUID()}`);
   t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));

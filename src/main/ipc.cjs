@@ -1,9 +1,42 @@
 const { ipcMain } = require('electron');
 const widgetTypes = new Set(require('../shared/widget-catalog.json').map((item) => item.typeId));
+const promptVariables = new Set(require('../shared/translation-catalog.json').promptVariables.map(item => item.token));
 const mediaCommands = new Set(['toggle', 'next', 'previous', 'seek']);
 const { listWeatherRegions, getWeatherRegionPath } = require('./weather-regions.cjs');
 
-function registerHandlers({ store, getWindowsHost, weatherService, weatherSettings, openWeatherLink, lyricsService, widgetWindows, countdown, todoReminders, reminderWindow, desktopSearch, audioService, noteWindows, openAudioFolder, getInitialOrigin, getControlWindow, getControlState, closeControlWindow, openControlWindow, getAppInfo, getStartupSettings, setStartupSettings }) {
+function registerHandlers({ store, getWindowsHost, weatherService, weatherSettings, openWeatherLink, lyricsService, widgetWindows, countdown, todoReminders, reminderWindow, desktopSearch, audioService, noteWindows, translationService, copyTranslation, openAudioFolder, getInitialOrigin, getControlWindow, getControlState, closeControlWindow, openControlWindow, getAppInfo, getStartupSettings, setStartupSettings }) {
+  function requireTranslation(event, allowEditing = false) {
+    const entry = [...widgetWindows.windows].find(([, window]) => !window.isDestroyed() && window.webContents === event.sender);
+    const widget = entry && store.list('translation').find(item => item.id === entry[0]);
+    if (!widget || !widget.enabled || (!allowEditing && widgetWindows.editMode)) throw new Error('此操作只能由开启的翻译磁贴执行');
+  }
+  ipcMain.handle('translation:get', event => { requireTranslation(event, true); return translationService.snapshot(); });
+  ipcMain.handle('translation:update', (event, input) => { requireTranslation(event); return translationService.update(input); });
+  ipcMain.handle('translation:run', (event, revision) => {
+    requireTranslation(event);
+    if (!Number.isSafeInteger(revision) || revision < 0) throw new TypeError('翻译请求编号无效');
+    return translationService.translate(revision);
+  });
+  ipcMain.handle('translation:cancel', event => { requireTranslation(event, true); return translationService.cancel(); });
+  ipcMain.handle('translation:copy', event => {
+    requireTranslation(event);
+    const state = translationService.snapshot();
+    if (state.status !== 'done' || !state.result) throw new Error('暂无可复制的译文');
+    copyTranslation(state.result);
+  });
+  ipcMain.handle('translation:settings', event => { requireControl(event); return translationService.settings.status(); });
+  ipcMain.handle('translation:models', (event, input) => { requireControl(event); return translationService.listModels(input); });
+  ipcMain.handle('translation:copy-prompt-variable', (event, token) => {
+    requireControl(event);
+    if (!promptVariables.has(token)) throw new TypeError('提示词字段无效');
+    copyTranslation(token);
+  });
+  ipcMain.handle('translation:save-config', (event, provider, input) => {
+    requireControl(event);
+    const status = translationService.settings.save(provider, input);
+    if (translationService.state.provider === provider) translationService.cancel();
+    return status;
+  });
   function requireNote(event) {
     const entry = [...widgetWindows.windows].find(([, window]) => !window.isDestroyed() && window.webContents === event.sender);
     const widget = entry && store.list('note').find(widget => widget.id === entry[0]);
@@ -139,6 +172,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
     if (typeof id !== 'string' || id.length > 64) throw new TypeError('Invalid widget id');
     if(store.list().find(item=>item.id===id)?.typeId==='countdown') { countdown.cancel(id);reminderWindow?.removeCountdown(id); }
     if(store.list().find(item=>item.id===id)?.typeId==='desktop-search') desktopSearch?.close();
+    if(store.list().find(item=>item.id===id)?.typeId==='translation') translationService?.cancel();
     store.remove(id);
     noteWindows?.removeWidget(id);
     if(audioService && audioService.enabled && !store.list().some(item=>item.typeId==='audio'&&item.enabled)) void audioService.setEnabled(false).catch(error=>getControlWindow()?.webContents.send('desktop:error',error.message));
@@ -155,6 +189,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
     requireControl(event);
     if (typeof id !== 'string' || id.length > 64 || typeof enabled !== 'boolean') throw new TypeError('Invalid widget enabled state');
     const widget = store.setEnabled(id, enabled);
+    if(widget.typeId==='translation' && !enabled) translationService?.cancel();
     if(widget.typeId==='audio') void audioService.setEnabled(enabled).catch(error=>getControlWindow()?.webContents.send('desktop:error',error.message));
     if(widget.typeId==='countdown' && !enabled) { countdown.cancel(id);reminderWindow?.removeCountdown(id); }
     if(widget.typeId==='desktop-search' && !enabled) desktopSearch?.close();
@@ -303,6 +338,7 @@ function registerHandlers({ store, getWindowsHost, weatherService, weatherSettin
 }
 
 function unregisterWidgetHandlers() {
+  for (const channel of ['translation:get','translation:update','translation:run','translation:cancel','translation:copy','translation:settings','translation:save-config','translation:models','translation:copy-prompt-variable']) ipcMain.removeHandler(channel);
   for (const channel of ['note:open','note:move','note:get','note:set-always-on-top','note:update','note:save','note:close','note:delete']) ipcMain.removeHandler(channel);
   for (const channel of ['desktop-search:show','desktop-search:list','desktop-search:resize','desktop-search:icon','desktop-search:open-item','desktop-search:close']) ipcMain.removeHandler(channel);
   for(const channel of ['audio:snapshot','audio:volume','audio:device','audio:start','audio:stop','audio:retry-save','audio:open-folder']) ipcMain.removeHandler(channel);
