@@ -1,4 +1,4 @@
-#include "..\.tmp\packaging\version.iss"
+﻿#include "..\.tmp\packaging\version.iss"
 #define AppGuid "{E24A2DF4-6D43-4724-B596-8647C759912B}"
 
 [Setup]
@@ -11,6 +11,7 @@ AppendDefaultDirName=yes
 UsePreviousAppDir=yes
 DisableDirPage=no
 PrivilegesRequired=lowest
+RedirectionGuard=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 DefaultGroupName=桌屿 DeskIsland
@@ -29,11 +30,12 @@ WizardStyle=modern
 Name: "chinesesimp"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [Files]
+Source: "resolve-shortcut-directory.ps1"; Flags: dontcopy
 Source: "..\dist\win-x64\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "data\*"
 
 [Icons]
 Name: "{userprograms}\桌屿 DeskIsland"; Filename: "{app}\DeskIsland.exe"; WorkingDir: "{app}"; IconFilename: "{app}\DeskIsland.ico"
-Name: "{userdesktop}\桌屿 DeskIsland"; Filename: "{app}\DeskIsland.exe"; WorkingDir: "{app}"; IconFilename: "{app}\DeskIsland.ico"
+Name: "{code:GetDesktopDirectory}\桌屿 DeskIsland"; Filename: "{app}\DeskIsland.exe"; WorkingDir: "{app}"; IconFilename: "{app}\DeskIsland.ico"
 
 [Run]
 Filename: "{app}\DeskIsland.exe"; Description: "启动桌屿"; Flags: nowait postinstall skipifsilent
@@ -42,7 +44,14 @@ Filename: "{app}\DeskIsland.exe"; Description: "启动桌屿"; Flags: nowait pos
 Type: filesandordirs; Name: "{app}\data"
 
 [Code]
-var PreviousDirectory: String;
+#include "shortcut-directory.iss"
+
+var PreviousDirectory, DesktopDirectory: String;
+
+function GetDesktopDirectory(Param: String): String;
+begin
+  Result := DesktopDirectory;
+end;
 
 function NormalizeDirectory(Value: String): String;
 begin
@@ -54,6 +63,7 @@ end;
 
 procedure InitializeWizard;
 begin
+  DesktopDirectory := ResolveShortcutDirectory(ExpandConstant('{userdesktop}'));
   if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#AppGuid}_is1', 'InstallLocation', PreviousDirectory) then
   begin
     PreviousDirectory := RemoveBackslashUnlessRoot(PreviousDirectory);
