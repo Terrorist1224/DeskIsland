@@ -1,33 +1,51 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
+const { getWindowHandle } = require('./window-glass.cjs');
+
+const OUTSIDE_CLICK_MESSAGE = 0x8051; // WM_APP + 0x51, shared with desktop-search-clicks.cs.
 
 class DesktopSearch {
   constructor({ screen, getWindowsHost, getFileIcon, openPath }) {
     Object.assign(this, { screen, getWindowsHost, getFileIcon, openPath });
     this.session = null;
+    this.sequence = 0;
   }
 
-  show(window) {
+  async show(window) {
     if (this.session) {
-      this.session.window.focus();
+      const session = this.session;
+      await session.ready;
+      if (this.session === session) session.window.focus();
       return;
     }
     const origin = window.getBounds();
-    const session = { window, origin, items: new Map(), icons: new Map(), snapshot: null, opening: false };
+    const token = this.sequence = this.sequence % 0x7fffffff + 1;
+    const host = this.getWindowsHost();
+    const session = { window, origin, host, token, items: new Map(), icons: new Map(), snapshot: null, opening: false };
     this.session = session;
-    // Launching a file can move focus before Shell reports failure; keep errors visible until it resolves.
-    session.onBlur = () => { if (!session.opening && this.session === session) this.close(); };
+    // Foreground changes are not outside clicks: a launched app may activate again long after Shell returns.
+    session.onOutsideClick = wparam => {
+      if (wparam.length >= 4 && wparam.readUInt32LE(0) === token && this.session === session) this.close();
+    };
     session.onInput = (event, input) => {
       if (input.key === 'Escape' && input.type === 'keyDown') { event.preventDefault();this.close(); }
     };
     session.onClose = () => { if (this.session === session) this.close(); };
-    window.on('blur', session.onBlur);
     window.on('closed', session.onClose);
     window.webContents.on('before-input-event', session.onInput);
     window.webContents.on('did-start-loading', session.onClose);
     window.webContents.on('render-process-gone', session.onClose);
-    window.focus();
+    try {
+      window.hookWindowMessage(OUTSIDE_CLICK_MESSAGE, session.onOutsideClick);
+      session.ready = host.request('desktop.watch-start', { handle: getWindowHandle(window), token });
+      const result = await session.ready;
+      if (!result.started) throw new Error('Windows 未能启用外部点击监听');
+      if (this.session === session && !window.isDestroyed()) window.focus();
+    } catch (error) {
+      if (this.session === session) this.close();
+      throw new Error(`无法启用搜索外部点击监听：${error.message}`);
+    }
   }
 
   resize(sender, height) {
@@ -113,7 +131,8 @@ class DesktopSearch {
     this.session = null;
     if (!session) return;
     const { window } = session;
-    window.removeListener('blur', session.onBlur);
+    if (!window.isDestroyed()) window.unhookWindowMessage(OUTSIDE_CLICK_MESSAGE);
+    void session.host.request('desktop.watch-stop', { token: session.token }).catch(error => console.error('Failed to stop search click listener:', error));
     window.removeListener('closed', session.onClose);
     window.webContents.removeListener('before-input-event', session.onInput);
     window.webContents.removeListener('did-start-loading', session.onClose);

@@ -2,6 +2,8 @@ const { GRID_SIZE, fitBoundsToGrid, resizeFromCorner } = require('../shared/grid
 const catalog = require('../shared/widget-catalog.json');
 const { getWindowHandle } = require('./window-glass.cjs');
 
+const isFocusableWidget = type => ['todo','note','countdown','audio','desktop-search','translation'].includes(type);
+
 class WidgetWindows {
   constructor({ BrowserWindow, screen, store, getWindowsHost, preloadPath, rendererPath, devUrl }) {
     this.BrowserWindow = BrowserWindow;
@@ -18,6 +20,7 @@ class WidgetWindows {
     this.gestureSequence = 0;
     this.pauseTimer = null;
     this.pauseRequestInFlight = false;
+    this.desktopErrors = new Map();
     this.paused = false;
     this.editMode = false;
     this.overlays = [];
@@ -69,7 +72,7 @@ class WidgetWindows {
       maximizable: false,
       closable: widget.typeId !== 'translation',
       skipTaskbar: true,
-      focusable: ['todo','note','countdown','audio','desktop-search','translation'].includes(widget.typeId),
+      focusable: isFocusableWidget(widget.typeId),
       show: false,
       webPreferences: {
         preload: this.preloadPath,
@@ -83,7 +86,10 @@ class WidgetWindows {
     window.setAlwaysOnTop(reminder, 'floating');
     if(reminder) this.reminderWindows.add(window);
     window.on('show', () => this.#lowerWindow(window));
-    window.on('minimize', () => { window.restore(); this.#lowerWindow(window); });
+    window.on('minimize', () => {
+      if (this.reminderWindows.has(window)) window.restore();
+      else void this.#refreshPauseState();
+    });
     this.windows.set(widget.id, window);
     // Only the typed edit gesture changes geometry; native titlebar dragging stays disabled.
     // Electron's will-move interception also blocks HWND Z-order changes; countdown uses movable:false.
@@ -96,7 +102,7 @@ class WidgetWindows {
         if(reminder) {
           if(!window.isAlwaysOnTop()) throw new Error('倒计时窗口未能置顶');
         } else {
-          const result=await this.getWindowsHost().request('system.desktop-widget',{handle:getWindowHandle(window),focusable:['todo','note','countdown','audio','desktop-search','translation'].includes(widget.typeId)});
+          const result=await this.getWindowsHost().request('system.desktop-widget',{handle:getWindowHandle(window),focusable:isFocusableWidget(widget.typeId)});
           if(!result.installed) throw new Error('Windows 没有启用桌面磁贴层级');
         }
         if(window.isDestroyed()) return;
@@ -128,6 +134,7 @@ class WidgetWindows {
       if(this.gesture?.id===widget.id) this.cancelGesture();
       this.windows.delete(widget.id);
       this.readyWindows.delete(window);
+      this.desktopErrors.delete(window);
       this.reminderWindows.delete(window);
       if (this.windows.size === 0) this.#stopPauseMonitor();
     });
@@ -327,17 +334,34 @@ class WidgetWindows {
   }
 
   async #refreshPauseState() {
-    if (this.editMode || this.pauseRequestInFlight || this.windows.size === 0) return;
+    if (this.pauseRequestInFlight || this.windows.size === 0) return;
     this.pauseRequestInFlight = true;
+    const widgets = [...this.windows].filter(([,window]) =>
+      !window.isDestroyed() && this.readyWindows.has(window) && !this.reminderWindows.has(window)
+    ).map(([id,window]) => ({ window, handle: getWindowHandle(window), focusable: isFocusableWidget(this.store.list().find(widget => widget.id === id)?.typeId) }));
     try {
-      const { shouldPause } = await this.getWindowsHost().request('system.pause-state');
-      if (this.editMode) return;
-      this.#setPaused(Boolean(shouldPause));
-    } catch {
-      this.#setPaused(false);
+      const { shouldPause, widgets: states = [] } = await this.getWindowsHost().request('system.desktop-state', {
+        widgets: widgets.map(({handle,focusable}) => ({handle,focusable})),
+      });
+      for (const {handle,error} of states) {
+        const window = widgets.find(widget => widget.handle === handle)?.window;
+        if (!window || window.isDestroyed()) continue;
+        if (error) {
+          if (this.desktopErrors.get(window) !== error) console.error('Desktop widget recovery pending:', error);
+          this.desktopErrors.set(window,error);
+        } else if (this.desktopErrors.delete(window)) console.info('Desktop widget recovered.');
+      }
+      if (!this.editMode) this.#setPaused(Boolean(shouldPause));
+    } catch (error) {
+      if (!this.editMode) this.#setPaused(false);
+      const message = error instanceof Error ? error.message : String(error);
+      if (this.desktopMonitorError !== message) console.error('Desktop widget monitor failed:', message);
+      this.desktopMonitorError = message;
+      return;
     } finally {
       this.pauseRequestInFlight = false;
     }
+    this.desktopMonitorError = null;
   }
 
   #setPaused(paused) {

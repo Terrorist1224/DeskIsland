@@ -33,25 +33,47 @@ public static class DeskIslandWindowState {
     else SetWindowLong32(window, index, value.ToInt32());
   }
 
-  public static bool InstallDesktopWidget(string handle, bool focusable) {
-    IntPtr window = new IntPtr(long.Parse(handle));
-    if (!IsWindow(window)) throw new ArgumentException("Widget window no longer exists.");
+  public static IntPtr DesktopHost() {
     IntPtr desktop = IntPtr.Zero;
     EnumWindows((candidate, data) => {
       if (FindWindowEx(candidate, IntPtr.Zero, "SHELLDLL_DefView", null) == IntPtr.Zero) return true;
       desktop = candidate;
       return false;
     }, IntPtr.Zero);
-    if (desktop == IntPtr.Zero) throw new InvalidOperationException("Windows desktop host is unavailable.");
-    // Owner, not parent: coordinates and DPI remain Electron DIP; no cross-process SetParent reset.
-    // Explorer may host DefView in Progman or WorkerW. Bind to the actual icon host, not a stale shell HWND.
-    int style = (GetWindowLong(window, -20) | 0x00000080) & ~0x00040000;
-    style = focusable ? style & ~0x08000000 : style | 0x08000000;
-    SetWindowValue(window, -20, new IntPtr(style)); // Interactive tiles accept keyboard focus; all tiles remain TOOLWINDOW.
-    SetWindowValue(window, -8, desktop); // GWLP_HWNDPARENT sets the owner of this top-level window.
-    if (GetWindow(window, 4) != desktop || (GetWindowLong(window, -20) & 0x08000080) != (focusable ? 0x00000080 : 0x08000080))
-      throw new InvalidOperationException("Windows rejected desktop widget ownership.");
-    return LowerWidget(handle);
+    return desktop;
+  }
+
+  private static int WidgetStyle(int style, bool focusable) {
+    style = (style | 0x00000080) & ~0x00040000;
+    return focusable ? style & ~0x08000000 : style | 0x08000000;
+  }
+
+  private static bool HasWidgetState(IntPtr window, IntPtr desktop, bool focusable) {
+    const int mask = 0x08040088; // NOACTIVATE, APPWINDOW, TOOLWINDOW and TOPMOST.
+    return GetWindow(window, 4) == desktop &&
+      (GetWindowLong(window, -20) & mask) == (WidgetStyle(0, focusable) & mask) && !IsIconic(window);
+  }
+
+  [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int command);
+
+  public static bool MaintainDesktopWidget(string handle, bool focusable, IntPtr desktop) {
+    IntPtr window = new IntPtr(long.Parse(handle));
+    if (!IsWindow(window)) throw new ArgumentException("Widget window no longer exists.");
+    if (desktop == IntPtr.Zero || !IsWindow(desktop)) throw new InvalidOperationException("Windows desktop host is unavailable.");
+    if (HasWidgetState(window, desktop, focusable)) return false;
+    // Owner, not parent: keep Electron DIP geometry; rediscover Explorer's actual DefView host after restart.
+    SetWindowValue(window, -20, new IntPtr(WidgetStyle(GetWindowLong(window, -20), focusable)));
+    SetWindowValue(window, -8, desktop); // GWLP_HWNDPARENT changes the owner of a top-level window.
+    if (IsIconic(window)) ShowWindow(window, 4); // SW_SHOWNOACTIVATE never steals the foreground.
+    if (!SetWindowPos(window, new IntPtr(1), 0, 0, 0, 0, 0x0033)) // BOTTOM + FRAMECHANGED + NOACTIVATE/NOMOVE/NOSIZE.
+      throw new System.ComponentModel.Win32Exception(Marshal.GetLastWin32Error());
+    if (!HasWidgetState(window, desktop, focusable)) throw new InvalidOperationException("Windows rejected desktop widget ownership or styles.");
+    return true;
+  }
+
+  public static bool InstallDesktopWidget(string handle, bool focusable) {
+    MaintainDesktopWidget(handle, focusable, DesktopHost());
+    return true;
   }
   [StructLayout(LayoutKind.Sequential)]
   private struct AccentPolicy { public int State, Flags, Color, Animation; }
@@ -354,7 +376,26 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
       'desktop.list' { $result = Get-DesktopItems }
       'media.snapshot' { $result = Get-MediaSnapshot -KnownMetadataKey $message.knownMetadataKey }
       'media.command' { $result = Invoke-MediaCommand -Message $message }
-      'system.pause-state' { $result = @{ shouldPause = [DeskIslandWindowState]::ShouldPauseWidgets() } }
+      'desktop.watch-start' {
+        if (-not ('DeskIslandSearchClicks' -as [type])) { Add-Type -Path (Join-Path $PSScriptRoot 'desktop-search-clicks.cs') }
+        [DeskIslandSearchClicks]::Start([string]$message.handle, [int]$message.token)
+        $result = @{ started = $true }
+      }
+      'desktop.watch-stop' {
+        if ('DeskIslandSearchClicks' -as [type]) { [DeskIslandSearchClicks]::Stop([int]$message.token) }
+        $result = @{ stopped = $true }
+      }
+      'system.desktop-state' {
+        $desktop = [DeskIslandWindowState]::DesktopHost()
+        $states = @(foreach ($widget in $message.widgets) {
+          try {
+            $repaired = [DeskIslandWindowState]::MaintainDesktopWidget([string]$widget.handle, ($widget.focusable -eq $true), $desktop)
+            @{ handle = [string]$widget.handle; repaired = $repaired; error = $null }
+          } catch { @{ handle = [string]$widget.handle; repaired = $false; error = $_.Exception.Message } }
+        })
+        $result = @{ shouldPause = [DeskIslandWindowState]::ShouldPauseWidgets(); widgets = @($states) }
+      }
+      'system.pause-state'  { $result = @{ shouldPause = [DeskIslandWindowState]::ShouldPauseWidgets() } }
       'system.lower-widget' { $result = @{ desktopLevel = [DeskIslandWindowState]::LowerWidget([string]$message.handle) } }
       'system.desktop-widget' { $result = @{ installed = [DeskIslandWindowState]::InstallDesktopWidget([string]$message.handle, ($message.focusable -eq $true)) } }
       'system.window-glass' { $result = @{ applied = [DeskIslandWindowState]::ApplyGlass([string]$message.handle, ($message.blur -ne $false)) } }
@@ -367,3 +408,5 @@ while ($null -ne ($line = [Console]::In.ReadLine())) {
   }
   [Console]::Out.WriteLine(($response | ConvertTo-Json -Depth 8 -Compress))
 }
+
+if ('DeskIslandSearchClicks' -as [type]) { [DeskIslandSearchClicks]::Stop(0) }

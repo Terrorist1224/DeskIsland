@@ -21,7 +21,7 @@ class FakeWindow extends EventEmitter {
   }
   setAlwaysOnTop(value) { this.alwaysOnTop = value; }
   isAlwaysOnTop() { return this.alwaysOnTop; }
-  getNativeWindowHandle() { return Buffer.from([1, 0, 0, 0]); }
+  getNativeWindowHandle() { const handle=Buffer.alloc(8);handle.writeBigUInt64LE(BigInt(FakeWindow.instances.indexOf(this)+1));return handle; }
   setMovable(value) { this.movable = value; }
   setIgnoreMouseEvents(value) { this.ignoreMouse = value; }
   showInactive() { this.visible = true; }
@@ -378,4 +378,44 @@ test('desktop ownership is installed before showing; initialization failure keep
   install({installed:false});await new Promise(resolve=>setImmediate(resolve));
   assert.equal(window.visible,false);assert.equal(manager.readyWindows.size,0);
   assert.equal(errors.length,1);
+});
+
+test('desktop maintenance batches ready ordinary windows, continues during editing and retries failures without reshowing',async t=>{
+  t.mock.timers.enable({apis:['setInterval']});
+  const directory=path.join(__dirname,'../.tmp/tests',`desktop-recovery-${randomUUID()}`);
+  t.after(()=>fs.rmSync(directory,{recursive:true,force:true}));
+  const {manager,store}=createHarness(directory);t.after(()=>manager.closeAll());
+  const calls=[],logs=[];let unavailable=false,fail=false,release;
+  t.mock.method(console,'error',(...args)=>logs.push(args));
+  t.mock.method(console,'info',(...args)=>logs.push(args));
+  manager.getWindowsHost=()=>({request:async(method,payload)=>{
+    if(method!=='system.desktop-state') return {installed:true,shouldPause:false};
+    calls.push(payload);
+    if(fail) throw new Error('TEST_ONLY transport unavailable');
+    if(release) await new Promise(resolve=>{release=resolve;});
+    return {shouldPause:true,widgets:payload.widgets.map(widget=>({handle:widget.handle,error:unavailable?'TEST_ONLY desktop unavailable':null,repaired:!unavailable}))};
+  }});
+  const music=manager.show(store.create('music')), note=manager.show(store.create('note'));
+  const reminder=manager.show(store.create('countdown'),true);
+  await new Promise(resolve=>setImmediate(resolve));
+  for(const window of [music,note,reminder]) {
+    window.showInactive=()=>assert.fail('monitor must not reshow windows');
+    window.restore=()=>assert.fail('ordinary recovery must not activate windows');
+  }
+  manager.setEditMode(true);
+  unavailable=true;
+  for(let attempt=0;attempt<2;attempt++) {t.mock.timers.tick(1500);await new Promise(resolve=>setImmediate(resolve));}
+  assert.deepEqual(calls.at(-1).widgets,[{handle:'1',focusable:false},{handle:'2',focusable:true}]);
+  assert.equal(manager.paused,false);assert.equal(logs.filter(log=>log[0]==='Desktop widget recovery pending:').length,2);
+  unavailable=false;t.mock.timers.tick(1500);await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(manager.desktopErrors.size,0);assert.equal(logs.filter(log=>log[0]==='Desktop widget recovered.').length,2);
+  fail=true;
+  for(let attempt=0;attempt<2;attempt++) {t.mock.timers.tick(1500);await new Promise(resolve=>setImmediate(resolve));}
+  assert.equal(logs.filter(log=>log[0]==='Desktop widget monitor failed:').length,1);
+  fail=false;release=true;t.mock.timers.tick(1500);await new Promise(resolve=>setImmediate(resolve));
+  const count=calls.length;t.mock.timers.tick(4500);assert.equal(calls.length,count);
+  const finish=release;release=null;finish();await new Promise(resolve=>setImmediate(resolve));
+  music.emit('minimize');await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(calls.length,count+1);
+  assert.equal(manager.windows.size,3);
 });

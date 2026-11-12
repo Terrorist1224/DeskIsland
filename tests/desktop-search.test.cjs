@@ -8,6 +8,10 @@ const { DesktopSearch } = require('../src/main/desktop-search.cjs');
 
 class FakeWindow extends EventEmitter {
   constructor(options = { x: -1100, y: 100, width: 320, height: 64 }) { super();this.bounds = options;this.webContents = new EventEmitter();this.messages = [];this.webContents.send = (...args) => this.messages.push(args);this.destroyed = false;this.focusCount = 0; }
+  getNativeWindowHandle() { return Buffer.from([1,0,0,0]); }
+  hookWindowMessage(message, callback) { this.nativeMessage = message;this.nativeCallback = callback; }
+  unhookWindowMessage() { this.nativeCallback = null; }
+  outsideClick(token) { const buffer = Buffer.alloc(8);buffer.writeUInt32LE(token);this.nativeCallback?.(buffer); }
   getBounds() { return { ...this.bounds }; }
   setBounds(bounds) { this.bounds = { ...bounds }; }
   show() { this.visible = true; }
@@ -33,12 +37,12 @@ async function harness(t) {
   const calls = { list: 0, icon: 0, opened: [] };
   const manager = new DesktopSearch({
     screen: { getDisplayNearestPoint: () => ({ workArea: { x: -1200, y: 40, width: 1200, height: 800 } }) },
-    getWindowsHost: () => ({ request: async method => { if(method === 'desktop.icon') throw new Error('test Shell unavailable');assert.equal(method, 'desktop.list');calls.list++;return snapshot; } }),
+    getWindowsHost: () => ({ request: async method => { if(method === 'desktop.watch-start') return {started:true};if(method === 'desktop.watch-stop') return {stopped:true};if(method === 'desktop.icon') throw new Error('test Shell unavailable');assert.equal(method, 'desktop.list');calls.list++;return snapshot; } }),
     getFileIcon: async () => { calls.icon++;return { toDataURL: () => 'data:image/png;base64,test' }; },
     openPath: async file => { calls.opened.push(file);return ''; },
   });
   t.after(() => { manager.close();fs.rmSync(root, { recursive: true, force: true }); });
-  manager.show(new FakeWindow());
+  await manager.show(new FakeWindow());
   return { manager, snapshot, calls, sender: manager.session.window.webContents, personal, common };
 }
 
@@ -66,15 +70,19 @@ test('click keeps original bounds; result-driven resize restores bounds and snap
   assert.deepEqual(first.bounds, { x: -1100, y: 100, width: 320, height: 214 });
   assert.throws(()=>manager.resize({},214),/只能由展开的桌面搜索/);
   for(const height of [0,-1,63,2000,NaN,Infinity,214.5]) assert.throws(()=>manager.resize(sender,height),/Invalid search height/);
-  await manager.list(sender);manager.show(first);assert.equal(manager.session.window, first);
-  first.emit('blur');assert.equal(manager.session, null);
+  await manager.list(sender);await manager.show(first);assert.equal(manager.session.window, first);
+  const session = manager.session, focusCount = first.focusCount;
+  first.emit('blur');first.emit('blur');
+  assert.equal(manager.session, session);assert.equal(first.focusCount,focusCount);
+  assert.equal((await manager.list(sender)).items.length,4);
+  first.outsideClick(session.token);assert.equal(manager.session, null);
   assert.equal(first.isDestroyed(), false);
   assert.deepEqual(first.bounds, { x: -1100, y: 100, width: 320, height: 64 });
   assert.deepEqual(first.messages.at(-1), ['desktop-search:collapsed']);
   assert.equal(first.listenerCount('blur'), 0);
   assert.throws(() => manager.list(sender), /只能由展开的桌面搜索/);
   snapshot.items = [];
-  manager.show(first);
+  await manager.show(first);
   assert.deepEqual((await manager.list(manager.session.window.webContents)).items, []);assert.equal(calls.list, 2);
   let prevented = false;
   manager.session.window.webContents.emit('before-input-event', { preventDefault: () => { prevented = true; } }, { key: 'Escape', type: 'keyDown' });
@@ -112,13 +120,13 @@ test('enumeration failure can be retried and closing during a pending open canno
   const { manager, sender, snapshot } = await harness(t);
   manager.getWindowsHost = () => ({ request: async () => { throw new Error('timeout'); } });
   await assert.rejects(manager.list(sender), /timeout/);
-  manager.getWindowsHost = () => ({ request: async () => snapshot });
+  manager.getWindowsHost = () => ({ request: async method => method === 'desktop.watch-start' ? {started:true} : snapshot });
   const item = (await manager.list(sender)).items[0];
   let finish;
   manager.openPath = () => new Promise(resolve => { finish = resolve; });
   const opening = manager.open(sender, item.id);
   while (!finish) await new Promise(resolve => setImmediate(resolve));
-  manager.close();manager.show(new FakeWindow());
+  manager.close();await manager.show(new FakeWindow());
   const second = manager.session;
   finish('');await opening;assert.equal(manager.session, second);
 });
@@ -127,13 +135,13 @@ test('search near the bottom temporarily shifts up, restores position and remove
   const { manager } = await harness(t);
   manager.close();
   const window = new FakeWindow({ x: -600, y: 750, width: 240, height: 48 });
-  manager.show(window);
+  await manager.show(window);
   manager.resize(window.webContents,368);
   assert.equal(window.bounds.y, 472);assert.equal(window.bounds.height, 368);
   window.webContents.emit('did-start-loading');
   assert.equal(manager.session, null);assert.equal(window.bounds.y, 750);
   assert.equal(window.webContents.listenerCount('before-input-event'), 0);
-  manager.show(window);window.destroy();assert.equal(manager.session, null);
+  await manager.show(window);window.destroy();assert.equal(manager.session, null);
 });
 
 test('Shell icons request physical pixels for the source display and retain the original shortcut identity', async t => {
@@ -148,4 +156,64 @@ test('Shell icons request physical pixels for the source display and retain the 
   await manager.icon(sender,item.id);assert.equal(requests.length,1);
   manager.session.icons.clear();manager.session.iconSize=256;manager.screen.getDisplayNearestPoint=()=>({scaleFactor:3});
   await manager.icon(sender,item.id);assert.equal(requests.at(-1).size,512);
+});
+
+test('outside clicks are session-scoped and listeners are released on close, reload, crash and destruction', async t => {
+  const {manager} = await harness(t);
+  const window = manager.session.window;
+  const oldToken = manager.session.token, oldCallback = window.nativeCallback;
+  manager.close();assert.equal(window.nativeCallback,null);
+  await manager.show(window);
+  window.outsideClick(oldToken);assert.ok(manager.session);
+  const buffer = Buffer.alloc(8);buffer.writeUInt32LE(oldToken);oldCallback(buffer);
+  assert.ok(manager.session);
+  window.emit('blur');assert.ok(manager.session);
+  window.outsideClick(manager.session.token);assert.equal(manager.session,null);
+  for (const event of ['did-start-loading','render-process-gone']) {
+    await manager.show(window);window.webContents.emit(event);
+    assert.equal(manager.session,null);assert.equal(window.nativeCallback,null);
+    assert.equal(window.webContents.listenerCount('before-input-event'),0);
+  }
+  await manager.show(window);window.destroy();assert.equal(manager.session,null);
+  assert.equal(window.listenerCount('closed'),0);
+});
+
+test('watch failure reports an error and releases the session without installing blur behavior', async t => {
+  const {manager} = await harness(t);
+  const window = manager.session.window;
+  manager.close();
+  for (const fail of [false,true]) {
+    const requests=[];
+    manager.getWindowsHost=()=>({request:async(method,payload)=>{
+      requests.push({method,...payload});
+      if (method==='desktop.watch-start') {
+        if (fail) throw new Error('TEST_ONLY hook unavailable');
+        return {started:false};
+      }
+      return {stopped:true};
+    }});
+    await assert.rejects(manager.show(window),/外部点击监听/);
+    assert.equal(manager.session,null);assert.equal(window.nativeCallback,null);
+    assert.equal(window.listenerCount('blur'),0);assert.equal(window.listenerCount('closed'),0);
+    assert.equal(requests.at(-1).method,'desktop.watch-stop');
+  }
+});
+
+test('closing while watch startup is pending cannot focus a closed or newer session', async t => {
+  const {manager} = await harness(t);
+  const window = manager.session.window;
+  manager.close();
+  let finish;
+  const stops=[];
+  manager.getWindowsHost=()=>({request:(method,payload)=>{
+    if (method==='desktop.watch-start') return new Promise(resolve=>{finish=resolve;});
+    stops.push(payload.token);return Promise.resolve({stopped:true});
+  }});
+  const initialFocus=window.focusCount;
+  const first=manager.show(window), token=manager.session.token;
+  manager.close();finish({started:true});await first;
+  assert.equal(window.focusCount,initialFocus);assert.deepEqual(stops,[token]);
+  const second=manager.show(window), current=manager.session;
+  finish({started:true});await second;
+  assert.equal(manager.session,current);assert.equal(window.focusCount,initialFocus+1);
 });
