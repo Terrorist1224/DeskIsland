@@ -41,6 +41,8 @@ public static class TestOnlyDesktopNative {
   [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);
   [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out Rect rect);
   [DllImport("user32.dll")] private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
+  [DllImport("user32.dll")] private static extern IntPtr GetThreadDpiAwarenessContext();
+  [DllImport("user32.dll")] private static extern bool AreDpiAwarenessContextsEqual(IntPtr first, IntPtr second);
 
   private static void Check(bool condition, string message) { if (!condition) throw new Exception(message); }
   private static IntPtr Create() {
@@ -85,20 +87,35 @@ public static class TestOnlyDesktopNative {
     Check(ready(),message);
   }
   private static object Watch(Type clicks) { return clicks.GetField("current",BindingFlags.Static|BindingFlags.NonPublic).GetValue(null); }
-  private static void Click(Type clicks, object watch, int x, int y) {
+  private static void Click(Type clicks, object watch, int x, int y, int awareness = -1) {
     MethodInfo method=clicks.GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic);
     Type pointType=method.GetParameters()[0].ParameterType;
     object point=Activator.CreateInstance(pointType);
     pointType.GetField("X").SetValue(point,x);pointType.GetField("Y").SetValue(point,y);
-    method.Invoke(watch,new object[]{point});Pump();
+    // Windows may dispatch the hook callback as DPI-unaware even when its message-loop thread is PMv2.
+    IntPtr context=new IntPtr(awareness);
+    IntPtr dpi=SetThreadDpiAwarenessContext(context);
+    Check(dpi!=IntPtr.Zero,"Test DPI context is unavailable");
+    try {
+      method.Invoke(watch,new object[]{point});
+      Check(AreDpiAwarenessContextsEqual(GetThreadDpiAwarenessContext(),context),"Click handler leaked its DPI context");
+    }
+    finally { if(dpi!=IntPtr.Zero) SetThreadDpiAwarenessContext(dpi); }
+    Pump();
   }
   public static void Clicks(Type clicks) {
+    // Enumerate monitor work areas under PMv2 too, so secondary-screen coordinates are physical.
+    IntPtr dpi=SetThreadDpiAwarenessContext(new IntPtr(-4));
+    try { foreach(var screen in Screen.AllScreens) ClicksOnScreen(clicks,screen); }
+    finally { if(dpi!=IntPtr.Zero) SetThreadDpiAwarenessContext(dpi); }
+  }
+  private static void ClicksOnScreen(Type clicks, Screen screen) {
     Action<string,int> start=(handle,token)=>clicks.GetMethod("Start").Invoke(null,new object[]{handle,token});
     Action<int> stop=token=>clicks.GetMethod("Stop").Invoke(null,new object[]{token});
     IntPtr dpi=SetThreadDpiAwarenessContext(new IntPtr(-4));
     var form=new TestOnlySearchForm();var covering=new TestOnlySearchForm();
     try {
-      Rectangle area=Screen.PrimaryScreen.WorkingArea;
+      Rectangle area=screen.WorkingArea;
       form.FormBorderStyle=FormBorderStyle.None;form.StartPosition=FormStartPosition.Manual;
       form.Bounds=new Rectangle(area.Right-150,area.Bottom-110,130,90);form.TopMost=true;
       var child=new Panel();child.Bounds=new Rectangle(5,5,60,40);form.Controls.Add(child);
@@ -107,16 +124,21 @@ public static class TestOnlyDesktopNative {
       Point inside=child.PointToScreen(new Point(10,10));
       WaitFor(()=>GetAncestor(WindowFromPoint(inside),2)==form.Handle,"Test search window did not become hittable");
       start(handle,17);object first=Watch(clicks);
-      Click(clicks,first,inside.X,inside.Y);Check(form.Clicks==0,"Child control counted as outside");
-      Click(clicks,first,-30000,-30000);WaitFor(()=>form.Clicks==1 && form.Token==17,"Outside click was not delivered");
+      int expected=0;
+      foreach(int awareness in new[]{-1,-2,-3,-4,-5}) {
+        Click(clicks,first,inside.X,inside.Y,awareness);
+        Check(form.Clicks==expected,"Child control counted as outside in DPI context "+awareness);
+        Click(clicks,first,-30000,-30000,awareness);expected++;
+        WaitFor(()=>form.Clicks==expected && form.Token==17,"Outside click was not delivered in DPI context "+awareness);
+      }
       covering.FormBorderStyle=FormBorderStyle.None;covering.StartPosition=FormStartPosition.Manual;
       covering.Bounds=form.Bounds;covering.TopMost=true;covering.Show();Pump();
       WaitFor(()=>GetAncestor(WindowFromPoint(inside),2)==covering.Handle,"Test covering window did not become hittable");
-      Click(clicks,first,inside.X,inside.Y);WaitFor(()=>form.Clicks==2,"Occluding window was mistaken for an inside click");
+      Click(clicks,first,inside.X,inside.Y);expected++;WaitFor(()=>form.Clicks==expected,"Occluding window was mistaken for an inside click");
       covering.Hide();
       start(handle,18);stop(17);object second=Watch(clicks);
       Check(second!=null && !Object.ReferenceEquals(first,second),"Old stop removed new watch");
-      Click(clicks,second,-30000,-30000);WaitFor(()=>form.Clicks==3 && form.Token==18,"New session token was not delivered");
+      Click(clicks,second,-30000,-30000);expected++;WaitFor(()=>form.Clicks==expected && form.Token==18,"New session token was not delivered");
       stop(18);Check(Watch(clicks)==null,"Hook did not stop");stop(18);
       try { start("0",19);throw new Exception("Invalid search HWND accepted"); }
       catch(TargetInvocationException error) { Check(error.InnerException is ArgumentException,"Unexpected invalid-HWND error"); }

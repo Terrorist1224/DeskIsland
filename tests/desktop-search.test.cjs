@@ -148,12 +148,17 @@ test('Shell icons request physical pixels for the source display and retain the 
   const {manager,sender} = await harness(t);
   const item = (await manager.list(sender)).items.find(item => item.kind === 'shortcut');
   const requests=[];
-  manager.screen.getDisplayNearestPoint=()=>({scaleFactor:1.5});
+  let scaleFactor=1;
+  manager.screen.getDisplayNearestPoint=()=>({scaleFactor});
   manager.getWindowsHost=()=>({request:async(method,payload)=>{requests.push({method,...payload});return {dataUrl:'data:image/png;base64,high-resolution'};}});
   manager.getFileIcon=async()=>{throw new Error('Small icon fallback must not run on Shell success');};
-  assert.equal(await manager.icon(sender,item.id),'data:image/png;base64,high-resolution');
-  assert.deepEqual(requests,[{method:'desktop.icon',path:item.path,size:72}]);
-  await manager.icon(sender,item.id);assert.equal(requests.length,1);
+  for (scaleFactor of [1,1.25,1.5,1.75,2,2.5,3]) {
+    manager.session.icons.clear();
+    assert.equal(await manager.icon(sender,item.id),'data:image/png;base64,high-resolution');
+    assert.deepEqual(requests.at(-1),{method:'desktop.icon',path:item.path,size:Math.ceil(48*scaleFactor)});
+    const count=requests.length;
+    await manager.icon(sender,item.id);assert.equal(requests.length,count);
+  }
   manager.session.icons.clear();manager.session.iconSize=256;manager.screen.getDisplayNearestPoint=()=>({scaleFactor:3});
   await manager.icon(sender,item.id);assert.equal(requests.at(-1).size,512);
 });

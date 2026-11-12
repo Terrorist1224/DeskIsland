@@ -97,14 +97,20 @@ public sealed class DeskIslandSearchClicks {
   }
 
   private void OnClick(Point point) {
-    IntPtr hit = WindowFromPoint(point);
-    if (GetAncestor(hit, 2) != target) PostMessage(target, OutsideClickMessage, new IntPtr(token), IntPtr.Zero);
+    // Hook entry can reset DPI awareness; PMv2 keeps hit-testing in physical pixels on every monitor and scale.
+    IntPtr previousDpi = SetThreadDpiAwarenessContext(new IntPtr(-4));
+    try {
+      IntPtr hit = WindowFromPoint(point);
+      if (GetAncestor(hit, 2) != target) PostMessage(target, OutsideClickMessage, new IntPtr(token), IntPtr.Zero);
+    } finally {
+      if (previousDpi != IntPtr.Zero) SetThreadDpiAwarenessContext(previousDpi);
+    }
   }
 
   private IntPtr OnMouse(int code, IntPtr message, IntPtr data) {
     int id = message.ToInt32();
     if (code >= 0 && (id == 0x0201 || id == 0x0204 || id == 0x0207 || id == 0x020B)) {
-      // Hook points and WindowFromPoint are physical pixels on this PMv2 thread, including negative monitors.
+      // Hook points use physical pixels, including negative monitors; OnClick restores PMv2 before hit-testing.
       Point point = (Point)Marshal.PtrToStructure(data, typeof(Point));
       OnClick(point);
     }
