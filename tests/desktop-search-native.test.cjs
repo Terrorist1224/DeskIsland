@@ -19,9 +19,20 @@ if ($errors.Count) { throw 'Invalid PowerShell syntax' }
 Invoke-Expression ($ast.FindAll({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-DesktopItems' }, $true)[0].Extent.Text)
 $script:mode = 'normal'
 $script:called = @()
+$script:personal = [Environment]::GetFolderPath([Environment+SpecialFolder]::DesktopDirectory)
+$script:physical = Join-Path '${directory.replaceAll("'", "''")}' '测试实际桌面'
+function Get-Item {
+  param($LiteralPath, [switch]$Force, $ErrorAction)
+  if ($script:mode -in @('relocated', 'cycle') -and $LiteralPath -eq $script:personal) {
+    $target = if ($script:mode -eq 'cycle') { $script:personal } else { $script:physical }
+    return [pscustomobject]@{ LinkType='Junction'; Target=@($target) }
+  }
+  [pscustomobject]@{ LinkType=$null; Target=$null }
+}
 function Get-ChildItem {
   param($LiteralPath, $ErrorAction)
   $script:called += $LiteralPath
+  if ($script:mode -eq 'relocated' -and $LiteralPath -eq $script:personal) { throw 'The path cannot be traversed because it contains an untrusted mount point.' }
   if ($script:mode -eq 'empty') { return }
   if ($script:mode -eq 'partial' -and $LiteralPath -eq [Environment]::GetFolderPath([Environment+SpecialFolder]::CommonDesktopDirectory)) { throw 'test denied' }
   [pscustomobject]@{ Name='TestQQ.lnk'; FullName=(Join-Path $LiteralPath 'TestQQ.lnk'); PSIsContainer=$false; Extension='.lnk'; Attributes=[IO.FileAttributes]::Normal }
@@ -39,6 +50,13 @@ if ($empty.items -isnot [array] -or $empty.items.Count -ne 0 -or $empty.warnings
 $script:mode = 'partial'
 $partial = Get-DesktopItems
 if ($partial.warnings.Count -ne 1 -or $partial.items.Count -ne 2) { throw 'Partial error discarded usable desktop entries' }
+$script:mode = 'relocated'
+$relocated = Get-DesktopItems
+if ($relocated.warnings.Count -or $relocated.roots -notcontains $script:physical -or $relocated.roots -contains $script:personal) { throw 'Relocated desktop still traversed the junction' }
+if (@($relocated.items | Where-Object { $_.path.StartsWith($script:physical) }).Count -ne 2) { throw 'Relocated entries lost their physical paths' }
+$script:mode = 'cycle'
+$cycle = Get-DesktopItems
+if ($cycle.warnings.Count -ne 1 -or $cycle.items.Count -ne 2) { throw 'Junction cycle did not preserve public desktop results' }
 [Console]::WriteLine('DESKTOP_NATIVE_PASSED')
 `;
   const file = path.join(directory, 'check.ps1');

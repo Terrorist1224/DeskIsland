@@ -345,10 +345,21 @@ function Get-DesktopItems {
   foreach ($folder in @([Environment+SpecialFolder]::DesktopDirectory, [Environment+SpecialFolder]::CommonDesktopDirectory)) {
     $root = [Environment]::GetFolderPath($folder)
     if ([string]::IsNullOrWhiteSpace($root)) { $warnings += "无法获取桌面目录：$folder"; continue }
-    if ($roots -contains $root) { continue }
-    $roots += $root
     try {
-      # Known folders follow Desktop relocation; enumerate only direct children and never shortcut targets.
+      # Resolve the desktop root itself: Windows can reject traversal through a relocated desktop junction.
+      $visited = @()
+      $directory = Get-Item -LiteralPath $root -Force -ErrorAction Stop
+      while ($directory.LinkType -in @('Junction', 'SymbolicLink')) {
+        if ($visited -contains $root) { throw '桌面目录联接存在循环' }
+        $visited += $root
+        $target = @($directory.Target)[0]
+        if ([string]::IsNullOrWhiteSpace($target)) { throw '无法解析桌面目录联接' }
+        $root = if ([IO.Path]::IsPathRooted($target)) { $target } else { Join-Path (Split-Path -Parent $root) $target }
+        $directory = Get-Item -LiteralPath $root -Force -ErrorAction Stop
+      }
+      if ($roots -contains $root) { continue }
+      $roots += $root
+      # Enumerate only direct children; never resolve individual shortcuts or child directory links.
       foreach ($entry in @(Get-ChildItem -LiteralPath $root -ErrorAction Stop)) {
         if ($entry.Attributes -band ([IO.FileAttributes]::Hidden -bor [IO.FileAttributes]::System)) { continue }
         $kind = if ($entry.PSIsContainer) { 'folder' } elseif ($entry.Extension -in @('.lnk', '.url')) { 'shortcut' } else { 'file' }

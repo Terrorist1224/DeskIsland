@@ -92,7 +92,7 @@ onBeforeUnmount(() => { revision++;removeCollapsedListener?.(); });
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>
       <input ref="input" v-model="query" :disabled="preview" type="text" role="searchbox" aria-label="搜索桌面" placeholder="搜索桌面…" autocomplete="off" spellcheck="false" @focus="expand" @click="expand" />
     </div>
-    <p v-if="status" class="search-status" role="status">{{ status }} <button v-if="error && !items.length" type="button" @click="load">重试</button></p>
+    <p v-if="status" class="search-status" role="status" :title="status">{{ status }} <button v-if="error && !items.length" type="button" @click="load">重试</button></p>
     <div v-if="showResults" class="search-results" :style="{ height: `${layout.panelHeight}px` }">
       <ul class="search-grid" :style="{ gridTemplateColumns: `repeat(${layout.columns},minmax(0,1fr))` }" aria-label="桌面搜索结果" @wheel.stop>
         <li v-for="item in matches" :key="item.id">
@@ -128,7 +128,7 @@ onBeforeUnmount(() => { revision++;removeCollapsedListener?.(); });
 .search-fallback{fill:#b9cddd;stroke:#eee9ef;stroke-width:1}
 .search-name{font-size:12px;font-weight:400;line-height:18px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;overflow-wrap:anywhere;width:100%;text-align:center}
 .search-name strong{font-weight:750;color:#36e1ff}
-.search-status{height:32px;flex-shrink:0;margin:0;display:flex;align-items:center;justify-content:center;gap:6px;color:#ffc6aa;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.search-status{height:32px;min-width:0;max-width:100%;flex-shrink:0;margin:0;display:block;line-height:32px;text-align:center;color:#ffc6aa;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .search-status button{background:#ffffff14;border:0;border-radius:6px;color:inherit;cursor:pointer}
 .search-error--collapsed{position:absolute;left:8px;right:8px;bottom:0;margin:0;font-size:11px;color:#ffc6aa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:#17161b}
 </style>

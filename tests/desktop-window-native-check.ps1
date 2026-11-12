@@ -37,6 +37,8 @@ public static class TestOnlyDesktopNative {
   [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr window, int command);
   [DllImport("user32.dll")] private static extern bool IsIconic(IntPtr window);
   [DllImport("user32.dll")] private static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Point point);
+  [DllImport("user32.dll")] private static extern IntPtr GetAncestor(IntPtr window, uint flags);
   [DllImport("user32.dll")] private static extern bool GetWindowRect(IntPtr window, out Rect rect);
   [DllImport("user32.dll")] private static extern IntPtr SetThreadDpiAwarenessContext(IntPtr context);
 
@@ -76,6 +78,12 @@ public static class TestOnlyDesktopNative {
     } finally { DestroyWindow(tile);DestroyWindow(host);DestroyWindow(replacement); }
   }
   private static void Pump() { for(int i=0;i<5;i++) { Application.DoEvents();Thread.Sleep(10); } }
+  private static void WaitFor(Func<bool> ready, string message) {
+    // Window hit-testing and posted messages can lag Show/Pump under build load; keep a bounded assertion.
+    var deadline=DateTime.UtcNow.AddSeconds(2);
+    while(!ready() && DateTime.UtcNow<deadline) Pump();
+    Check(ready(),message);
+  }
   private static object Watch(Type clicks) { return clicks.GetField("current",BindingFlags.Static|BindingFlags.NonPublic).GetValue(null); }
   private static void Click(Type clicks, object watch, int x, int y) {
     MethodInfo method=clicks.GetMethod("OnClick",BindingFlags.Instance|BindingFlags.NonPublic);
@@ -96,17 +104,19 @@ public static class TestOnlyDesktopNative {
       var child=new Panel();child.Bounds=new Rectangle(5,5,60,40);form.Controls.Add(child);
       form.Show();Pump();
       string handle=form.Handle.ToInt64().ToString();
-      start(handle,17);object first=Watch(clicks);
       Point inside=child.PointToScreen(new Point(10,10));
+      WaitFor(()=>GetAncestor(WindowFromPoint(inside),2)==form.Handle,"Test search window did not become hittable");
+      start(handle,17);object first=Watch(clicks);
       Click(clicks,first,inside.X,inside.Y);Check(form.Clicks==0,"Child control counted as outside");
-      Click(clicks,first,-30000,-30000);Check(form.Clicks==1 && form.Token==17,"Outside click was not delivered");
+      Click(clicks,first,-30000,-30000);WaitFor(()=>form.Clicks==1 && form.Token==17,"Outside click was not delivered");
       covering.FormBorderStyle=FormBorderStyle.None;covering.StartPosition=FormStartPosition.Manual;
       covering.Bounds=form.Bounds;covering.TopMost=true;covering.Show();Pump();
-      Click(clicks,first,inside.X,inside.Y);Check(form.Clicks==2,"Occluding window was mistaken for an inside click");
+      WaitFor(()=>GetAncestor(WindowFromPoint(inside),2)==covering.Handle,"Test covering window did not become hittable");
+      Click(clicks,first,inside.X,inside.Y);WaitFor(()=>form.Clicks==2,"Occluding window was mistaken for an inside click");
       covering.Hide();
       start(handle,18);stop(17);object second=Watch(clicks);
       Check(second!=null && !Object.ReferenceEquals(first,second),"Old stop removed new watch");
-      Click(clicks,second,-30000,-30000);Check(form.Clicks==3 && form.Token==18,"New session token was not delivered");
+      Click(clicks,second,-30000,-30000);WaitFor(()=>form.Clicks==3 && form.Token==18,"New session token was not delivered");
       stop(18);Check(Watch(clicks)==null,"Hook did not stop");stop(18);
       try { start("0",19);throw new Exception("Invalid search HWND accepted"); }
       catch(TargetInvocationException error) { Check(error.InnerException is ArgumentException,"Unexpected invalid-HWND error"); }
